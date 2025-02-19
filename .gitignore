@@ -3,3 +3,6 @@ __pycache__
 .python-version
 *.mat
 test.ipynb
+*.png
+*.jpg
+!img/example.jpg

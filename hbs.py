@@ -58,7 +58,7 @@ def get_hbs(
 
 def reconstruct_from_hbs(
     hbs: np.ndarray[np.complexfloating], disk: DiskMesh
-) -> np.ndarray[np.complexfloating]:
+):
     """
     Reconstruct original shape from HBS
     :param `hbs`: complex array with length `disk.face_num`, Beltrami coefficients defined on triangles

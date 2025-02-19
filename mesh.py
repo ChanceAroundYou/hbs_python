@@ -14,6 +14,7 @@ class Mesh:
 
         if face is None:
             self.face = Delaunay(vert).simplices
+
         else:
             assert face.shape[1] == 3
             assert face.ndim == 2
@@ -125,7 +126,7 @@ class Mesh:
         plt.triplot(self.vert[:, 0], self.vert[:, 1], self.face)
         if with_face_center:
             plt.plot(self.face_center[:, 0], self.face_center[:, 1], "o")
-        # plt.show()
+        plt.show()
 
     def plot_mu(self, mu: np.ndarray[np.complexfloating], is_3d: bool = False):
         assert isinstance(mu, np.ndarray) and np.issubdtype(
@@ -157,6 +158,7 @@ class Mesh:
                 cmap="jet",
                 s=0.5,
             )
+        plt.show()
 
     def plot_mapping(self, mapping: np.ndarray[np.floating], is_3d: bool = False):
         assert isinstance(mapping, np.ndarray) and np.issubdtype(
@@ -187,6 +189,7 @@ class Mesh:
                 cmap="jet",
                 s=0.5,
             )
+        plt.show()
 
 
 class DiskMesh(Mesh):
@@ -280,7 +283,7 @@ def get_rect(
 
 
 def get_unit_disk(
-    density: float | int = 0.01, circle_point_num: int = 100, eps: float = 1e-3
+    density: float | int = 0.01, circle_point_num: int = 1000, eps: float | None = None
 ) -> DiskMesh:
     """
     Create a unit disk mesh
@@ -289,6 +292,9 @@ def get_unit_disk(
     :param eps: epsilon to shrink the disk
     :return: face and vert arrays
     """
+    if eps is None:
+        eps = 10 / circle_point_num
+
     num = int(1 / density)
     x, y = np.meshgrid(np.arange(-num, num + 1), np.arange(-num, num + 1))
     vert = np.vstack([x.ravel(), y.ravel()]).T * density

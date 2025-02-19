@@ -118,13 +118,16 @@ class ConformalWelding:
         plt.scatter(self.y.real, self.y.imag)
         plt.show()
 
-    def plot(self):
+    def plot(self, is_interp=True):
         plt.gca().set_aspect("equal", adjustable="box")
         x_angle = np.angle(self.x)
         y_angle = np.angle(self.y)
         x_angle = np.mod(x_angle, 2 * np.pi)
         y_angle = np.mod(y_angle, 2 * np.pi)
-        plt.scatter(x_angle, y_angle)
+        if is_interp:
+            plt.plot(x_angle, y_angle, linestyle="-", linewidth=2)
+        else:
+            plt.scatter(x_angle, y_angle, s=2)
         plt.show()
 
 
