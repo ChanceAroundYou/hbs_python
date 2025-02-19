@@ -2,9 +2,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import interp1d
 
-from utils.mobius import mobius, mobius_inv
-from utils.tool_functions import to_complex
-from utils.zipper import zipper, zipper_params
+from .utils.mobius import mobius, mobius_inv
+from .utils.tool_functions import to_complex
+from .utils.zipper import zipper, zipper_params
 
 
 class ConformalWelding:

@@ -2,7 +2,7 @@ import numpy as np
 from scipy.sparse import csr_matrix, lil_matrix
 from scipy.sparse.linalg import spsolve
 
-from mesh import Mesh
+from hbs.mesh import Mesh
 
 
 def lsqc_solver(

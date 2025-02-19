@@ -1,16 +1,15 @@
 import numpy as np
 
-from mesh import Mesh
-from utils.tool_functions import mu_chop, to_complex
-
+from hbs.mesh import Mesh
+from ..utils.tool_functions import mu_chop, to_complex
 
 def get_beltrami_coefficient(
     mapping: np.ndarray[np.floating], mesh: Mesh
 ) -> np.ndarray[np.complexfloating]:
     """
-    计算从 "vertex" 到 "mapping" 的映射的 Beltrami 系数，即 f(vertex) = map。
-    :param mapping: n x 2 映射后的顶点坐标
-    :return: 对应的 Beltrami 系数
+    Calculate the Beltrami coefficient of the mapping from "vertex" to "mapping", i.e., f(vertex) = map.
+    :param mapping: n x 2 mapped vertex coordinates
+    :return: Corresponding Beltrami coefficient
     """
     assert isinstance(mesh, Mesh), "mesh must be Mesh object"
 

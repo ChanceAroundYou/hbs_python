@@ -3,11 +3,11 @@ import numpy as np
 
 def mu_chop(mu, bound=0.9999, constant=None):
     """
-    对 mu 进行截断处理
-    :param mu: 输入的复数数组
-    :param bound: 截断的边界值
-    :param constant: 截断后的常数值
-    :return: 处理后的 mu
+    Perform truncation on mu
+    :param mu: Input complex array
+    :param bound: Truncation boundary value
+    :param constant: Constant value after truncation
+    :return: Processed mu
     """
     if constant is None:
         constant = bound

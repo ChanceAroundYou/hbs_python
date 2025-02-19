@@ -1,11 +1,11 @@
 import numpy as np
 
-from conformal_welding import ConformalWelding, get_conformal_welding
-from utils.geodesic_welding import geodesic_welding
-from mesh import DiskMesh, get_unit_disk
-from qc import get_beltrami_coefficient, lsqc_solver
-from utils.poisson import integral as poisson_integral
-from utils.tool_functions import to_complex, to_real
+from hbs.conformal_welding import ConformalWelding, get_conformal_welding
+from .utils.geodesic_welding import geodesic_welding
+from hbs.mesh import DiskMesh, get_unit_disk
+from .qc import get_beltrami_coefficient, lsqc_solver
+from .utils.poisson import integral as poisson_integral
+from .utils.tool_functions import to_complex, to_real
 
 
 def get_hbs(

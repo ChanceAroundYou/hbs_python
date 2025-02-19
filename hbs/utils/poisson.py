@@ -1,14 +1,13 @@
 import numpy as np
 
-from utils.tool_functions import to_complex, to_real
-
+from .tool_functions import to_complex, to_real
 
 def kernel(z, x):
     """
-    计算 Poisson 核
-    :param z: 输入点
-    :param x: 边界点
-    :return: Poisson 核
+    Compute the Poisson kernel
+    :param z: Input points
+    :param x: Boundary points
+    :return: Poisson kernel
     """
     w = z.reshape(-1, 1) / x.reshape(1, -1)
     w = np.real((1 + w) / (1 - w))
@@ -21,11 +20,11 @@ def integral(
     y: np.ndarray[np.complexfloating],
 ) -> np.ndarray[np.floating]:
     """
-    计算 Poisson 积分
-    :param z: 需要积分的内部点, n x 2 real array
-    :param x: 边界点, m x 1 complex array
-    :param y: 边界值, m x 1 complex array
-    :return: Poisson 积分结果
+    Compute the Poisson integral
+    :param z: Internal points to be integrated, n x 2 real array
+    :param x: Boundary points, m x 1 complex array
+    :param y: Boundary values, m x 1 complex array
+    :return: Poisson integral result
     """
     assert z.ndim == 2 and z.shape[1] == 2 and np.issubdtype(z.dtype, np.floating), (
         "z must be n x 2 array with float type"
