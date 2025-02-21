@@ -133,7 +133,7 @@ class ConformalWelding:
         plt.gca().set_aspect("equal", adjustable="box")
         x_angle = np.angle(self.x)
         x_angle = np.mod(x_angle, 2 * np.pi)
-        y_angle = self.y_angle_norm()
+        y_angle = self.get_y_angle()
 
         if is_interp:
             plt.plot(x_angle, y_angle, linestyle="-", linewidth=2)
@@ -141,15 +141,16 @@ class ConformalWelding:
             plt.scatter(x_angle, y_angle, s=2)
         plt.show()
 
-    def y_angle_norm(self):
+    def get_y_angle_diff(self):
         y_angle = np.angle(self.y)
+        y_angle = np.insert(y_angle, -1, y_angle[0])
         y_angle_diff = np.diff(y_angle)
 
         # plt.plot(y_angle)
         # plt.plot(y_angle_diff)
         # plt.show()
 
-        y_angle_diff = np.insert(y_angle_diff, 0, 0)
+        # y_angle_diff = np.insert(y_angle_diff, 0, 0)
         y_angle_diff[y_angle_diff < -np.pi] += 2 * np.pi
         y_angle_diff[(-0.1 < y_angle_diff) & (y_angle_diff < 0)] *= -1
 
@@ -157,9 +158,15 @@ class ConformalWelding:
             raise ValueError("y_angle_diff must be non-negative")
 
         if y_angle_diff.sum() > 2 * np.pi:
-            y_angle_diff *= 2 * np.pi / (y_angle_diff.sum() + y_angle_diff.mean())
+            y_angle_diff *= 2 * np.pi / y_angle_diff.sum()
 
-        y_angle = np.cumsum(y_angle_diff)
+        return y_angle_diff
+
+    def get_y_angle(self):
+        y_angle_diff = self.get_y_angle_diff()
+        # y_angle_diff = np.insert(y_angle_diff, 0, 0)[:-1]
+        y_angle = np.cumsum(y_angle_diff)[:-1]
+        y_angle = np.insert(y_angle, 0, 0)
         return y_angle
 
 
