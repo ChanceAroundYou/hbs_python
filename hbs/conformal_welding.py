@@ -37,8 +37,17 @@ class ConformalWelding:
         self._set_init_y(y)
 
     def _set_init_x(self, x: np.ndarray[np.complexfloating]):
+        x_angle = np.angle(x)
+        x_angle_diff = np.diff(x_angle)
+        min_pos = np.argmin(x_angle_diff)
+        if x_angle_diff[min_pos] < 0:
+            x_angle[min_pos + 1 :] += 2 * np.pi
+        # x_angle -= x_angle[0]
+        # x_angle = np.mod(x_angle, 2 * np.pi)
+        x = np.exp(x_angle * 1j)
+
+        self.init_x_angle = x_angle
         self.init_x = x
-        self.init_x_angle = np.angle(x)
         self.x = x
 
     def _set_init_y(self, y: np.ndarray[np.complexfloating]):
@@ -70,7 +79,8 @@ class ConformalWelding:
             kind="linear",
         )
         y = inter_func(x_angle_regular)
-        self.y = np.exp(np.angle(y / y[0]) * 1j)
+        y_anlge = np.angle(y)
+        self.y = np.exp((y_anlge - y_anlge[0]) * 1j)
 
     def rotate_x(self, r):
         x_angle = np.mod(self.init_x_angle - r, 2 * np.pi)
@@ -105,7 +115,8 @@ class ConformalWelding:
             p = mobius(p, center)
 
         y = p[:-2]
-        # y = np.flipud(y)
+        # y_angle = self.y_angle_norm()
+        # y = np.exp(y_angle * 1j)
         self._set_init_y(y)
 
     def plot_x(self):
@@ -121,14 +132,35 @@ class ConformalWelding:
     def plot(self, is_interp=True):
         plt.gca().set_aspect("equal", adjustable="box")
         x_angle = np.angle(self.x)
-        y_angle = np.angle(self.y)
         x_angle = np.mod(x_angle, 2 * np.pi)
-        y_angle = np.mod(y_angle, 2 * np.pi)
+        y_angle = self.y_angle_norm()
+
         if is_interp:
             plt.plot(x_angle, y_angle, linestyle="-", linewidth=2)
         else:
             plt.scatter(x_angle, y_angle, s=2)
         plt.show()
+
+    def y_angle_norm(self):
+        y_angle = np.angle(self.y)
+        y_angle_diff = np.diff(y_angle)
+
+        # plt.plot(y_angle)
+        # plt.plot(y_angle_diff)
+        # plt.show()
+
+        y_angle_diff = np.insert(y_angle_diff, 0, 0)
+        y_angle_diff[y_angle_diff < -np.pi] += 2 * np.pi
+        y_angle_diff[(-0.1 < y_angle_diff) & (y_angle_diff < 0)] *= -1
+
+        if np.any(y_angle_diff < 0):
+            raise ValueError("y_angle_diff must be non-negative")
+
+        if y_angle_diff.sum() > 2 * np.pi:
+            y_angle_diff *= 2 * np.pi / (y_angle_diff.sum() + y_angle_diff.mean())
+
+        y_angle = np.cumsum(y_angle_diff)
+        return y_angle
 
 
 def get_conformal_welding(bound: np.ndarray[np.floating]) -> ConformalWelding:
