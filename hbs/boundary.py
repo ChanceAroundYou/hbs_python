@@ -37,8 +37,16 @@ def extract_boundary_points(image_path):
     # Read the image and convert to grayscale
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
 
+    # Add padding to avoid detecting image borders
+    img = cv2.copyMakeBorder(img, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=255)
+
     # Determine if the image is black-on-white or white-on-black
-    if np.mean(img) > 127:
+    # Calculate the mean color of the outer two layers of pixels
+    outer_layer_mean = np.mean(
+        [img[:2, :].mean(), img[-2:, :].mean(), img[:, :2].mean(), img[:, -2:].mean()]
+    )
+
+    if outer_layer_mean > 127:
         # White-on-black image, invert it
         img = cv2.bitwise_not(img)
 
@@ -46,7 +54,7 @@ def extract_boundary_points(image_path):
     _, binary = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY)
 
     # Find contours (using CHAIN_APPROX_NONE to get all boundary points)
-    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    contours, _ = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
 
     # Get the largest contour (assuming there's only one main shape in the image)
     main_contour = max(contours, key=cv2.contourArea)

@@ -1,9 +1,10 @@
 import numpy as np
 
 from hbs.conformal_welding import ConformalWelding, get_conformal_welding
-from .utils.geodesic_welding import geodesic_welding
 from hbs.mesh import DiskMesh, get_unit_disk
+
 from .qc import get_beltrami_coefficient, lsqc_solver
+from .utils.geodesic_welding import geodesic_welding
 from .utils.poisson import integral as poisson_integral
 from .utils.tool_functions import to_complex, to_real
 
@@ -56,9 +57,7 @@ def get_hbs(
     return hbs, he, cw, disk
 
 
-def reconstruct_from_hbs(
-    hbs: np.ndarray[np.complexfloating], disk: DiskMesh
-):
+def reconstruct_from_hbs(hbs: np.ndarray[np.complexfloating], disk: DiskMesh):
     """
     Reconstruct original shape from HBS
     :param `hbs`: complex array with length `disk.face_num`, Beltrami coefficients defined on triangles
@@ -100,4 +99,5 @@ def reconstruct_from_hbs(
 
     bound_points = in_points[: disk.circle_num]
     in_points = in_points[disk.circle_num :]
+    return bound_points, in_points, out_points, mapping
     return bound_points, in_points, out_points, mapping
