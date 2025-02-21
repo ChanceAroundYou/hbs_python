@@ -115,9 +115,22 @@ class ConformalWelding:
             p = mobius(p, center)
 
         y = p[:-2]
+        y_angle = np.angle(y)
+        y_angle_diff = np.diff(np.insert(y_angle, -1, y_angle[0]))
+        y_angle_diff[y_angle_diff < -np.pi] += 2 * np.pi
+        y_angle_diff[(-0.1 < y_angle_diff) & (y_angle_diff < 0)] *= -1
+        # y_angle_diff[y_angle_diff == 0] = y_angle_diff[y_angle_diff > 0].min()
+        y_angle_diff[y_angle_diff < 1e-4] = 1e-4
+        
+        if y_angle_diff.sum() > 2 * np.pi:
+            y_angle_diff *= 2 * np.pi / y_angle_diff.sum()
+
+        y_angle_new = np.cumsum(y_angle_diff)
+        y_angle_new = np.insert(y_angle_new[:-1] + y_angle[0], 0, y_angle[0])
+        y_new = np.exp(y_angle_new * 1j)
         # y_angle = self.y_angle_norm()
         # y = np.exp(y_angle * 1j)
-        self._set_init_y(y)
+        self._set_init_y(y_new)
 
     def plot_x(self):
         plt.gca().set_aspect("equal", adjustable="box")
@@ -153,6 +166,7 @@ class ConformalWelding:
         # y_angle_diff = np.insert(y_angle_diff, 0, 0)
         y_angle_diff[y_angle_diff < -np.pi] += 2 * np.pi
         y_angle_diff[(-0.1 < y_angle_diff) & (y_angle_diff < 0)] *= -1
+        y_angle_diff[y_angle_diff == 0] = y_angle_diff[y_angle_diff > 0].min()
 
         if np.any(y_angle_diff < 0):
             raise ValueError("y_angle_diff must be non-negative")
