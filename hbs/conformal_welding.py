@@ -101,7 +101,7 @@ class ConformalWelding:
         x = np.flipud(x)
         self._set_init_x(x)
 
-    def y_post_norm(self):
+    def y_post_norm(self, eps=1e-8):
         """
         对内部点进行后归一化
         :param z: 输入点
@@ -120,8 +120,8 @@ class ConformalWelding:
         y_angle_diff[y_angle_diff < -np.pi] += 2 * np.pi
         y_angle_diff[(-0.1 < y_angle_diff) & (y_angle_diff < 0)] *= -1
         # y_angle_diff[y_angle_diff == 0] = y_angle_diff[y_angle_diff > 0].min()
-        y_angle_diff[y_angle_diff < 1e-4] = 1e-4
-        
+        y_angle_diff[y_angle_diff < eps] = eps
+
         if y_angle_diff.sum() > 2 * np.pi:
             y_angle_diff *= 2 * np.pi / y_angle_diff.sum()
 

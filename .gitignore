@@ -9,3 +9,5 @@ test.ipynb
 build
 dist
 *.egg-info
+.vscode
+publish.sh
