@@ -118,8 +118,12 @@ def smooth_resample(points, num_points=None):
     if num_points is None:
         num_points = points.shape[0]
 
+    # points = np.unique(points, axis=0)
+    _, idx = np.unique(points, axis=0, return_index=True)
+    points = points[np.sort(idx)]
+
     # Check if the boundary is closed
-    is_closed = np.all(np.abs(points[0, :] - points[-1, :]) < 1e-8)
+    is_closed = np.all(np.abs(points[0, :] - points[-1, :]) < 1e-10)
     if not is_closed:
         points = np.vstack([points, points[0, :]])  # Close the boundary if not closed
 
@@ -134,21 +138,9 @@ def smooth_resample(points, num_points=None):
     x = points[:, 0]
     y = points[:, 1]
 
-    if is_closed:
-        # Periodic cubic spline interpolation (closed curve)
-        ppx = CubicSpline(t, x, bc_type="periodic")
-        ppy = CubicSpline(t, y, bc_type="periodic")
-    else:
-        # Shape-preserving piecewise cubic interpolation (open curve)
-        ppx = PchipInterpolator(t, x)
-        ppy = PchipInterpolator(t, y)
-
-    # Generate uniform parameters
-    if is_closed:
-        t_new = np.linspace(0, total_length, num_points + 2)
-        t_new = t_new[:-1]  # Avoid duplicate start and end points
-    else:
-        t_new = np.linspace(0, total_length, num_points + 1)
+    ppx = CubicSpline(t, x, bc_type="periodic")
+    ppy = CubicSpline(t, y, bc_type="periodic")
+    t_new = np.linspace(0, total_length, num_points + 1)
 
     # Calculate new points
     x_new = ppx(t_new)
