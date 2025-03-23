@@ -1,10 +1,10 @@
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.interpolate import CubicSpline, PchipInterpolator
+from scipy.interpolate import CubicSpline
 
 
-def get_boundary(image_path, num_points=250):
+def get_boundary(image_path, num_points=250, kernel_size=15):
     """
     Process the image to extract boundary, apply anti-aliasing, and resample.
 
@@ -18,7 +18,7 @@ def get_boundary(image_path, num_points=250):
     # Extract boundary points
     boundary_points = extract_boundary_points(image_path)
     # Apply anti-aliasing
-    smoothed_points = anti_aliasing(boundary_points)
+    smoothed_points = anti_aliasing(boundary_points, kernel_size)
     # Resample to the specified number of points
     resampled_points = smooth_resample(smoothed_points, num_points)
     return resampled_points
@@ -74,8 +74,8 @@ def anti_aliasing(points, kernel_size=5):
     smoothed_points: List of smoothed boundary points
     """
     # Use Gaussian blur for smoothing
-    x = cv2.GaussianBlur(points[:, 0].astype("float32"), (kernel_size, kernel_size), 0)
-    y = cv2.GaussianBlur(points[:, 1].astype("float32"), (kernel_size, kernel_size), 0)
+    x = cv2.GaussianBlur(points[:, 0].astype("float64"), (kernel_size, kernel_size), 0)
+    y = cv2.GaussianBlur(points[:, 1].astype("float64"), (kernel_size, kernel_size), 0)
     return np.column_stack((x, y))
 
 
