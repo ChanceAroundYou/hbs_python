@@ -2,9 +2,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import interp1d
 
-from .utils.mobius import mobius, mobius_inv
-from .utils.tool_functions import to_complex
-from .utils.zipper import zipper, zipper_params
+from hbs.utils.mobius import mobius, mobius_inv
+from hbs.utils.tool_functions import to_complex
+from hbs.utils.zipper import zipper, zipper_params
 
 
 class ConformalWelding:
@@ -145,6 +145,7 @@ class ConformalWelding:
     def plot(self, is_interp=True):
         plt.gca().set_aspect("equal", adjustable="box")
         x_angle = np.angle(self.x)
+        x_angle -= x_angle[0]
         x_angle = np.mod(x_angle, 2 * np.pi)
         y_angle = self.get_y_angle()
 

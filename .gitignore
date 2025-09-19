@@ -5,9 +5,10 @@ __pycache__
 test.ipynb
 *.png
 *.jpg
-!img/example.jpg
+!img/example.png
 build
 dist
 *.egg-info
 .vscode
 publish.sh
+Thumbs.db

@@ -3,10 +3,10 @@ import numpy as np
 from hbs.conformal_welding import ConformalWelding, get_conformal_welding
 from hbs.mesh import DiskMesh, get_unit_disk
 
-from .qc import get_beltrami_coefficient, lsqc_solver
-from .utils.geodesic_welding import geodesic_welding
-from .utils.poisson import integral as poisson_integral
-from .utils.tool_functions import to_complex, to_real
+from hbs.qc import get_beltrami_coefficient, lsqc_solver
+from hbs.utils.geodesic_welding import geodesic_welding
+from hbs.utils.poisson import integral as poisson_integral
+from hbs.utils.tool_functions import to_complex, to_real
 
 
 def get_hbs(
@@ -41,8 +41,8 @@ def get_hbs(
     while True:
         cw.rotate_x(r / 2)
         cw.linear_interp(circle_point_num)
-        he = poisson_integral(disk.in_vert, cw.x, cw.y)
-        hbs = get_beltrami_coefficient(he, disk)
+        hbs_mapping = poisson_integral(disk.in_vert, cw.x, cw.y)
+        hbs = get_beltrami_coefficient(hbs_mapping, disk)
 
         excluded_idx = np.isnan(hbs) + np.linalg.norm(disk.face_center, axis=1) == 0
         r = np.angle(np.sum(hbs[~excluded_idx]))
@@ -54,7 +54,7 @@ def get_hbs(
             else:
                 break
 
-    return hbs, he, cw, disk
+    return hbs, hbs_mapping, cw, disk
 
 
 def reconstruct_from_hbs(hbs: np.ndarray[np.complexfloating], disk: DiskMesh):
@@ -99,5 +99,4 @@ def reconstruct_from_hbs(hbs: np.ndarray[np.complexfloating], disk: DiskMesh):
 
     bound_points = in_points[: disk.circle_num]
     in_points = in_points[disk.circle_num :]
-    return bound_points, in_points, out_points, mapping
     return bound_points, in_points, out_points, mapping
