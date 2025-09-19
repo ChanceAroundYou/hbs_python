@@ -46,16 +46,25 @@ Or install from source:
 
 Compute HBS from image
 
+
+
 ```python
 from hbs.utils.boundary import get_boundary
 from hbs import get_hbs
 
+# Boundary points extraction
+# 
+# we don't actually restrict the method of boundary extraction,
+# but this package provides a simple implementation as follows
 img_path = 'img/example.jpg'
 circle_point_num = 1000
-density = 0.01
-bound_point_num = 250
 bound = get_boundary(img_path, bound_point_num)
 
+# HBS computing
+# 
+# it requires boundary points arranged in clockwise order as input, in `np.complex`
+density = 0.01
+bound_point_num = 250
 hbs, hbs_mapping, cw, disk = get_hbs(bound, circle_point_num, density)
 ```
 
@@ -73,10 +82,14 @@ Compute conformal welding from image
 from hbs.utils.boundary import get_boundary
 from hbs.conformal_welding import get_conformal_welding
 
+# Boundary points extraction
 img_path = 'img/example.jpg'
 bound_point_num = 250
 bound = get_boundary(img_path, bound_point_num)
 
+# Conformal welding computing
+# 
+# it also requires boundary points arranged in clockwise order as input, in `np.complex`
 cw = get_conformal_welding(bound)
 ```
 
