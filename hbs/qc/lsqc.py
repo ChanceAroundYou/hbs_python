@@ -9,7 +9,8 @@ def lsqc_solver(
     mu: np.ndarray[np.complexfloating],
     landmark: np.ndarray[np.integer],
     target: np.ndarray[np.floating],
-    mesh: Mesh
+    mesh: Mesh,
+    eps: float = 0.0,
 ):
     """
     Solves the Beltrami equation
@@ -43,7 +44,7 @@ def lsqc_solver(
 
     landmark = np.concatenate([landmark, landmark + mesh.vert_num])
     target = target.T.reshape(-1)
-    L = div_PtP_grad(mu, mesh)
+    L = div_PtP_grad(mu, mesh, eps)
     A = unsigned_area_matrix(mu, mesh)
     M = lil_matrix(L - 2 * A)
     b = -M[:, landmark] @ target
@@ -83,11 +84,16 @@ def unsigned_area_matrix(mu, mesh):
     return matrix
 
 
-def div_PtP_grad(mu, mesh):
+def div_PtP_grad(mu, mesh, eps=0.0):
     abs_mu = np.abs(mu)
-    A = -(1 - 2 * np.real(mu) + abs_mu**2) / (1.0 - abs_mu**2)
-    B = 2 * np.imag(mu) / (1.0 - abs_mu**2)
-    C = -(1 + 2 * np.real(mu) + abs_mu**2) / (1.0 - abs_mu**2)
+    # eps：尖角处 |mu|→1⁻ 使正分母 1-|mu|² 接近 0（病态），抬到 eps 稳定。
+    # 默认 0 保持原行为；>0 牺牲极小精度换取尖角重建稳定。
+    # |mu|>1 的分母为负（unsigned 处理），不受影响。
+    denom = 1.0 - abs_mu**2
+    denom = np.where((denom > 0) & (denom < eps), eps, denom)
+    A = -(1 - 2 * np.real(mu) + abs_mu**2) / denom
+    B = 2 * np.imag(mu) / denom
+    C = -(1 + 2 * np.real(mu) + abs_mu**2) / denom
 
     idx = abs_mu > 1
     A[idx] = -A[idx]

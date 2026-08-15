@@ -38,7 +38,7 @@ def get_hbs(
     cw = get_conformal_welding(bound)
 
     r = 0
-    while True:
+    for _ in range(30):
         cw.rotate_x(r / 2)
         cw.linear_interp(circle_point_num)
         hbs_mapping = poisson_integral(disk.in_vert, cw.x, cw.y)
@@ -53,15 +53,21 @@ def get_hbs(
                 r += 2 * np.pi
             else:
                 break
+    else:
+        # 近旋转对称形状（Σhbs≈0）归一化振荡不收敛 → 快速抛错而非挂起
+        raise RuntimeError("HBS normalization did not converge in 30 iterations")
 
     return hbs, hbs_mapping, cw, disk
 
 
-def reconstruct_from_hbs(hbs: np.ndarray[np.complexfloating], disk: DiskMesh):
+def reconstruct_from_hbs(
+    hbs: np.ndarray[np.complexfloating], disk: DiskMesh, eps: float = 0.0
+):
     """
     Reconstruct original shape from HBS
     :param `hbs`: complex array with length `disk.face_num`, Beltrami coefficients defined on triangles
     :param `disk`: DiskMesh object
+    :param `eps`: LSQC 稳定性正则化（尖角处 |mu|→1 病态，>0 改善重建，默认 0）
     :return:
         `bound_points`: `disk.circle_num` x 2 array, boundary points
         `in_points`: `disk.in_vert_num` x 2 array, inner points
@@ -83,7 +89,7 @@ def reconstruct_from_hbs(hbs: np.ndarray[np.complexfloating], disk: DiskMesh):
     zero_pos = np.all(disk.vert == target[1], axis=1)
     landmark = np.where(one_pos | zero_pos)[0]
 
-    mapping = lsqc_solver(hbs, landmark, target, disk)
+    mapping = lsqc_solver(hbs, landmark, target, disk, eps)
     bound_points = mapping[: disk.circle_num]
     in_points = mapping[: disk.in_vert_num + disk.circle_num]
     out_points = mapping[disk.in_vert_num + disk.circle_num :]

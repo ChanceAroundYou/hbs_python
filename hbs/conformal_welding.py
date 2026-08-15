@@ -77,6 +77,7 @@ class ConformalWelding:
             ),
             np.concatenate([self.init_y, self.init_y, self.init_y]),
             kind="linear",
+            fill_value="extrapolate",  # 周期边界越界时外插（数值鲁棒）
         )
         y = inter_func(x_angle_regular)
         y_anlge = np.angle(y)
@@ -108,11 +109,13 @@ class ConformalWelding:
         :return: 归一化后的点，a 和 theta 参数
         """
         p = np.append(self.y, [0, 1])
-        while True:
+        for _ in range(200):
             center = np.mean(p[:-2])
             if np.abs(center) <= np.finfo(float).eps:
                 break
             p = mobius(p, center)
+        else:
+            raise RuntimeError("y_post_norm Möbius centering did not converge")
 
         y = p[:-2]
         y_angle = np.angle(y)

@@ -38,7 +38,9 @@ class Mesh:
         return e1, e2, e3
 
     def get_area(self):
-        return np.cross(self.edges[0], self.edges[1]) / 2
+        # numpy 2.x 移除 np.cross 对 2D 向量的支持 → 标量叉积（等价）
+        e1, e2, _ = self.edges
+        return (e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]) / 2
 
     def set_operator(self):
         def get_diff():

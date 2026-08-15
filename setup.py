@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="hbs",
-    version="1.0.0",
+    version="1.0.1",
     author="Lin Chenran",
     author_email="chenranlin.17@gmail.com",
     description="Python library for computing Harmonic Beltrami Signature(HBS)",

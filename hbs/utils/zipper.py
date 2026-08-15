@@ -5,6 +5,17 @@ def zipper(bound, others=None):
     if others is None:
         others = []
 
+    # 纯虚数稳健化：边界含实部≈0 的点会触发 f() 的纯虚数检查（数值误崩）。
+    # 绕质心微旋 0.5° 避开——HBS 归一化吸收输入旋转，输出代表不变。
+    all_pts = np.concatenate([bound, others])
+    if np.any(np.abs(all_pts.real) < 1e-9):
+        c = np.mean(all_pts)
+        all_pts = (all_pts - c) * np.exp(1j * np.deg2rad(0.5)) + c
+        # 质心在虚轴上时绕质心旋转不动点仍在虚轴 → 加微小平移（HBS 平移不变）
+        if np.any(np.abs(all_pts.real) < 1e-12):
+            all_pts = all_pts + 1e-6
+        bound, others = all_pts[: len(bound)], all_pts[len(bound) :]
+
     n = len(bound)
     params = np.zeros(n + 1, dtype=complex)
     params[:2] = bound[:2]
