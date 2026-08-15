@@ -74,8 +74,13 @@ def anti_aliasing(points, kernel_size=5):
     smoothed_points: List of smoothed boundary points
     """
     # Use Gaussian blur for smoothing
-    x = cv2.GaussianBlur(points[:, 0].astype("float64"), (kernel_size, kernel_size), 0)
-    y = cv2.GaussianBlur(points[:, 1].astype("float64"), (kernel_size, kernel_size), 0)
+    # cv2 5.0 把一维数组当 (1, N) 单行图像；显式 reshape + (1, kernel) 核 + squeeze 回一维
+    x = cv2.GaussianBlur(
+        points[:, 0].astype("float64").reshape(1, -1), (1, kernel_size), 0
+    ).squeeze()
+    y = cv2.GaussianBlur(
+        points[:, 1].astype("float64").reshape(1, -1), (1, kernel_size), 0
+    ).squeeze()
     return np.column_stack((x, y))
 
 
