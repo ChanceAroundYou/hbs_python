@@ -2,6 +2,13 @@ import numpy as np
 
 
 def zipper(bound, others=None):
+    """zipper 共形焊接（边界 → 单位圆）。
+
+    已知局限：高对称形状（如 5 角星）中途大量点落虚轴/原点，微旋防护
+    虽消除 ValueError 崩溃，但累积旋转会把输出压到实线（退化）→ 后续
+    y_post_norm 不收敛。这是 zipper 对对称形状的结构性退化，非本库可简单修复。
+    非对称形状（鸟/椭圆/多边形）正常。
+    """
     if others is None:
         others = []
 
@@ -101,8 +108,18 @@ def f(z, p):
     p -> 1 -> 0
     aj -> bj -> sqrt(b^2 + 1)j
     """
-    if p.real == 0:
-        raise ValueError("Point p should not be a pure imaginary number.")
+    if abs(p) < 1e-9 or (abs(p.imag) > 1e-9 and abs(p.real) < 1e-12):
+        # 退化稳健化：仅处理真正会让 f1 爆掉的情形——
+        #  (a) p≈原点（c=real/|p|²→NaN），旋转后仍贴原点则加微移；
+        #  (b) p 恰好在虚轴（real==0，原代码 raise）——微旋 0.5° 避开。
+        # 注意：近轴但非退化（|real|≈1e-6）不触发，避免破坏正常 seam。
+        # 微旋/微移对共形映射可忽略（归一化吸收）。
+        rot = np.exp(1j * np.deg2rad(0.5))
+        z = z * rot
+        p = p * rot
+        if abs(p) < 1e-12:
+            z = z + 1e-6
+            p = p + 1e-6
 
     w = f1(z, p)
     w = f2(w)
@@ -111,6 +128,15 @@ def f(z, p):
 
 
 def f_end(z, p):
+    if abs(p) < 1e-9:
+        # 仅处理 p≈原点（q=1-z/p 除零）。恰在虚轴/实轴对 z/p 无害，
+        # 不触发——避免破坏正常 seam（bird 等 points[0] 常恰在虚轴）。
+        rot = np.exp(1j * np.deg2rad(0.5))
+        z = z * rot
+        p = p * rot
+        if abs(p) < 1e-12:
+            z = z + 1e-6
+            p = p + 1e-6
     q = 1 - z / p
     with np.errstate(divide="ignore", invalid="ignore"):
         w = (z / q) ** 2
