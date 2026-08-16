@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 from scipy.interpolate import CubicSpline
+from scipy.ndimage import gaussian_filter1d
 
 
 def get_boundary(image_path, num_points=250, kernel_size=15):
@@ -72,14 +73,12 @@ def anti_aliasing(points, kernel_size=5):
     Returns:
     smoothed_points: List of smoothed boundary points
     """
-    # Use Gaussian blur for smoothing
-    # cv2 5.0 把一维数组当 (1, N) 单行图像；显式 reshape + (1, kernel) 核 + squeeze 回一维
-    x = cv2.GaussianBlur(
-        points[:, 0].astype("float64").reshape(1, -1), (1, kernel_size), 0
-    ).squeeze()
-    y = cv2.GaussianBlur(
-        points[:, 1].astype("float64").reshape(1, -1), (1, kernel_size), 0
-    ).squeeze()
+    # scipy 一维高斯平滑（版本无关）。cv2 5.0 的 GaussianBlur 对 (1,N) 单行图用 (1,k) 核是 no-op，
+    # 且一维坐标平滑本就不该走图像 API。闭曲线（extract_boundary_points 输出）用 wrap 模式首尾无缝。
+    # kernel_size 语义沿用 cv2 核尺寸，映射 sigma 保持平滑强度（cv2 auto-sigma 公式）。
+    sigma = 0.3 * ((kernel_size - 1) * 0.5 - 1) + 0.8
+    x = gaussian_filter1d(points[:, 0].astype("float64"), sigma, mode="wrap")
+    y = gaussian_filter1d(points[:, 1].astype("float64"), sigma, mode="wrap")
     return np.column_stack((x, y))
 
 
