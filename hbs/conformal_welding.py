@@ -2,7 +2,7 @@ import numpy as np
 from scipy.interpolate import interp1d
 
 from hbs.utils.mobius import mobius, mobius_inv
-from hbs.utils.tool_functions import to_complex
+from hbs.utils.cast import to_complex
 from hbs.utils.zipper import zipper, zipper_params
 
 
@@ -41,8 +41,6 @@ class ConformalWelding:
         min_pos = np.argmin(x_angle_diff)
         if x_angle_diff[min_pos] < 0:
             x_angle[min_pos + 1 :] += 2 * np.pi
-        # x_angle -= x_angle[0]
-        # x_angle = np.mod(x_angle, 2 * np.pi)
         x = np.exp(x_angle * 1j)
 
         self.init_x_angle = x_angle
@@ -121,7 +119,6 @@ class ConformalWelding:
         y_angle_diff = np.diff(np.insert(y_angle, -1, y_angle[0]))
         y_angle_diff[y_angle_diff < -np.pi] += 2 * np.pi
         y_angle_diff[(-0.1 < y_angle_diff) & (y_angle_diff < 0)] *= -1
-        # y_angle_diff[y_angle_diff == 0] = y_angle_diff[y_angle_diff > 0].min()
         y_angle_diff[y_angle_diff < eps] = eps
 
         if y_angle_diff.sum() > 2 * np.pi:
@@ -130,8 +127,6 @@ class ConformalWelding:
         y_angle_new = np.cumsum(y_angle_diff)
         y_angle_new = np.insert(y_angle_new[:-1] + y_angle[0], 0, y_angle[0])
         y_new = np.exp(y_angle_new * 1j)
-        # y_angle = self.y_angle_norm()
-        # y = np.exp(y_angle * 1j)
         self._set_init_y(y_new)
 
     def get_y_angle_diff(self):
@@ -139,11 +134,6 @@ class ConformalWelding:
         y_angle = np.insert(y_angle, -1, y_angle[0])
         y_angle_diff = np.diff(y_angle)
 
-        # plt.plot(y_angle)
-        # plt.plot(y_angle_diff)
-        # plt.show()
-
-        # y_angle_diff = np.insert(y_angle_diff, 0, 0)
         y_angle_diff[y_angle_diff < -np.pi] += 2 * np.pi
         y_angle_diff[(-0.1 < y_angle_diff) & (y_angle_diff < 0)] *= -1
         y_angle_diff[y_angle_diff == 0] = y_angle_diff[y_angle_diff > 0].min()
@@ -158,7 +148,6 @@ class ConformalWelding:
 
     def get_y_angle(self):
         y_angle_diff = self.get_y_angle_diff()
-        # y_angle_diff = np.insert(y_angle_diff, 0, 0)[:-1]
         y_angle = np.cumsum(y_angle_diff)[:-1]
         y_angle = np.insert(y_angle, 0, 0)
         return y_angle
@@ -173,7 +162,6 @@ def get_conformal_welding(bound: np.ndarray[np.floating]) -> ConformalWelding:
 
     bound = to_complex(bound)
     x, _, x_params = zipper(bound)
-    # x = np.flipud(x)
     y, _, _ = zipper(np.flipud(bound))
 
     cw = ConformalWelding(x, y, x_params)

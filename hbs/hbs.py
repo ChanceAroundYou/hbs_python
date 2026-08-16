@@ -6,7 +6,7 @@ from hbs.mesh import DiskMesh, get_unit_disk
 from hbs.qc import get_beltrami_coefficient, lsqc_solver
 from hbs.utils.geodesic_welding import geodesic_welding
 from hbs.utils.poisson import integral as poisson_integral
-from hbs.utils.tool_functions import to_complex, to_real
+from hbs.utils.cast import to_complex, to_real
 
 
 def get_hbs(

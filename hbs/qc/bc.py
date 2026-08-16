@@ -1,26 +1,8 @@
-import numpy as np
+"""向后兼容 shim：Beltrami 系数计算已迁至 hbs.qc.beltrami。
 
-from hbs.mesh import Mesh
-from ..utils.tool_functions import mu_chop, to_complex
+保持 `from hbs.qc.bc import get_beltrami_coefficient` 等旧导入可用。
+新代码请从 hbs.qc.beltrami 导入。
+"""
+from .beltrami import get_beltrami_coefficient, mu_chop
 
-def get_beltrami_coefficient(
-    mapping: np.ndarray[np.floating], mesh: Mesh
-) -> np.ndarray[np.complexfloating]:
-    """
-    Calculate the Beltrami coefficient of the mapping from "vertex" to "mapping", i.e., f(vertex) = map.
-    :param mapping: n x 2 mapped vertex coordinates
-    :return: Corresponding Beltrami coefficient
-    """
-    assert isinstance(mesh, Mesh), "mesh must be Mesh object"
-
-    assert isinstance(mapping, np.ndarray) and np.issubdtype(
-        mapping.dtype, np.floating
-    ), "mapping must be float array"
-    assert mapping.ndim == 2 and mapping.shape == (mesh.vert_num, 2), (
-        "mapping must be n x 2 array and n is the number of faces"
-    )
-
-    mapping = to_complex(mapping)
-    mu = (mesh.Dc * mapping) / (mesh.Dz * mapping)
-    mu = mu_chop(mu)
-    return mu
+__all__ = ["get_beltrami_coefficient", "mu_chop"]

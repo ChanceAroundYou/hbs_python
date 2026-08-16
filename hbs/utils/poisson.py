@@ -1,6 +1,6 @@
 import numpy as np
 
-from .tool_functions import to_complex, to_real
+from .cast import to_complex, to_real
 
 def kernel(z, x):
     """

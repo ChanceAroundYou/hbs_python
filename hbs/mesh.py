@@ -193,7 +193,7 @@ class DiskMesh(Mesh):
 
 
 def get_rect(
-    height: float | int = 1, width: float | int = 1, density: float | int = 0.01
+    height: float = 1, width: float = 1, density: float = 0.01
 ) -> Mesh:
     """
     Create a rectangle mesh
@@ -213,7 +213,7 @@ def get_rect(
 
 
 def get_unit_disk(
-    density: float | int = 0.01, circle_point_num: int = 1000, eps: float | None = None
+    density: float = 0.01, circle_point_num: int = 1000, eps: float | None = None
 ) -> DiskMesh:
     """
     Create a unit disk mesh
@@ -245,9 +245,9 @@ def get_unit_disk(
 
 def get_unit_disk_in_rect(
     disk_mesh: DiskMesh,
-    height: float | int = 4,
-    width: float | int = 4,
-    density: float | int = 0.01,
+    height: float = 4,
+    width: float = 4,
+    density: float = 0.01,
     eps: float = 1e-3,
 ) -> DiskMesh:
     """
