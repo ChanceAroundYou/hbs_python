@@ -31,16 +31,25 @@ Or install from source:
 - `hbs.py`: HBS algorithm for computing HBS and recontructing shape from HBS
 - `conformal_welding.py`: Conformal welding algorithm implementation
 - `mesh.py`: Mesh generation and processing
+- `plotting.py`: Optional plotting helpers (matplotlib is NOT required for compute)
 - `utils/`:
-  - `boundary.py`: Boundary processing tools
+  - `boundary.py`: Boundary processing tools (requires opencv-python)
+  - `cast.py`: Complex ↔ real array conversion
   - `geodesic_welding.py`: Geodesic welding
   - `mobius.py`: Möbius transformations
   - `poisson.py`: Poisson integral implementation
-  - `tool_functions.py`: Utility functions
   - `zipper.py`: Zipper algorithm implementation
 - `qc/`: Quasiconformal mapping algorithms
-  - `bc.py`: Beltrami coefficient computation
+  - `beltrami.py`: Beltrami coefficient computation + mu_chop
   - `lsqc.py`: Least squares quasiconformal mapping algorithm
+
+Top-level `import hbs` exposes the full public API:
+`get_hbs`, `reconstruct_from_hbs`, `get_beltrami_coefficient`, `lsqc_solver`,
+`mu_chop`, `get_conformal_welding`, `get_unit_disk`, `get_rect`,
+`get_unit_disk_in_rect`, `Mesh`, `DiskMesh`.
+
+Backward-compatible shims keep old internal paths working:
+`hbs.qc.bc` → `hbs.qc.beltrami`, `hbs.utils.tool_functions` → `hbs.utils.cast` + `hbs.qc.beltrami`.
 
 ## Usage Example
 
@@ -99,8 +108,14 @@ Please also refer to `example.ipynb`
 
 - NumPy
 - SciPy
-- Matplotlib
-- Opencv
+
+Optional (extras):
+
+- `hbs[plot]` → Matplotlib (for `hbs.plotting`)
+- `hbs[boundary]` → OpenCV (for `hbs.utils.boundary`)
+- `hbs[all]` → both
+
+Core compute (HBS, mesh, LSQC, welding) works without matplotlib.
 
 ## Contributing
 
