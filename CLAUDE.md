@@ -1,7 +1,7 @@
 # HBS（Harmonic Beltrami Signature）— hbs_python
 
 数学库：图像 → 边界 → HBS（Beltrami 系数复向量，定义在三角面心）→ LSQC 重建。
-发布为 PyPI 包 `hbs`（当前 1.0.3，GitHub `ChanceAroundYou/hbs_python`）。
+发布为 PyPI 包 `hbs`（当前 1.1.0，GitHub `ChanceAroundYou/hbs_python`）。
 下游消费方：hbs_generation（VAE 在 HBS 空间生成形状，独立仓库）。
 
 ## 模块地图
