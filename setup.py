@@ -13,9 +13,12 @@ setup(
     install_requires=[
         "numpy",
         "scipy",
-        "matplotlib",
-        "opencv-python",
     ],
+    extras_require={
+        "plot": ["matplotlib"],     # hbs.plotting 绘图
+        "boundary": ["opencv-python"],  # hbs.utils.boundary 图像边界提取
+        "all": ["matplotlib", "opencv-python"],
+    },
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

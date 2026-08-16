@@ -1,4 +1,3 @@
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import interp1d
 
@@ -134,29 +133,6 @@ class ConformalWelding:
         # y_angle = self.y_angle_norm()
         # y = np.exp(y_angle * 1j)
         self._set_init_y(y_new)
-
-    def plot_x(self):
-        plt.gca().set_aspect("equal", adjustable="box")
-        plt.scatter(self.x.real, self.x.imag)
-        plt.show()
-
-    def plot_y(self):
-        plt.gca().set_aspect("equal", adjustable="box")
-        plt.scatter(self.y.real, self.y.imag)
-        plt.show()
-
-    def plot(self, is_interp=True):
-        plt.gca().set_aspect("equal", adjustable="box")
-        x_angle = np.angle(self.x)
-        x_angle -= x_angle[0]
-        x_angle = np.mod(x_angle, 2 * np.pi)
-        y_angle = self.get_y_angle()
-
-        if is_interp:
-            plt.plot(x_angle, y_angle, linestyle="-", linewidth=2)
-        else:
-            plt.scatter(x_angle, y_angle, s=2)
-        plt.show()
 
     def get_y_angle_diff(self):
         y_angle = np.angle(self.y)

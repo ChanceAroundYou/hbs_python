@@ -1,6 +1,5 @@
 from collections import defaultdict
 
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.spatial import Delaunay
@@ -121,77 +120,6 @@ class Mesh:
         self.f2v = f2v()
         self.v2f = v2f()
         self.laplacian = laplacian()
-
-    def plot(self, with_face_center: bool = False):
-        # plt.figure(figsize=(8, 8))
-        plt.gca().set_aspect("equal", adjustable="box")
-        plt.triplot(self.vert[:, 0], self.vert[:, 1], self.face)
-        if with_face_center:
-            plt.plot(self.face_center[:, 0], self.face_center[:, 1], "o")
-        plt.show()
-
-    def plot_mu(self, mu: np.ndarray[np.complexfloating], is_3d: bool = False):
-        assert isinstance(mu, np.ndarray) and np.issubdtype(
-            mu.dtype, np.complexfloating
-        ), "mu must be complex array"
-        assert mu.ndim == 1 and mu.shape[0] == self.face_num, (
-            "mu must be 1D array with length equal to face number"
-        )
-
-        magnitude = np.abs(mu)
-        magnitude[magnitude > 1] = 1
-        # 绘制散点图
-        if not is_3d:
-            plt.scatter(
-                self.face_center[:, 0],
-                self.face_center[:, 1],
-                c=magnitude,
-                cmap="jet",
-                s=0.5,
-            )
-            plt.colorbar(label="Magnitude")
-        else:
-            ax = plt.axes(projection="3d")
-            ax.scatter(
-                self.face_center[:, 0],
-                self.face_center[:, 1],
-                magnitude,
-                c=magnitude,
-                cmap="jet",
-                s=0.5,
-            )
-        plt.show()
-
-    def plot_mapping(self, mapping: np.ndarray[np.floating], is_3d: bool = False):
-        assert isinstance(mapping, np.ndarray) and np.issubdtype(
-            mapping.dtype, np.floating
-        ), "mapping must be real float array"
-        assert mapping.ndim == 2 and mapping.shape == (self.vert_num, 2), (
-            "mapping must be n x 2 array"
-        )
-
-        magnitude = np.linalg.norm(mapping, axis=1)
-        # magnitude[magnitude > 1] = 1
-        if not is_3d:
-            plt.scatter(
-                self.vert[:, 0],
-                self.vert[:, 1],
-                c=magnitude,
-                cmap="jet",
-                s=0.5,
-            )
-            plt.colorbar(label="Magnitude")
-        else:
-            ax = plt.axes(projection="3d")
-            ax.scatter(
-                self.vert[:, 0],
-                self.vert[:, 1],
-                magnitude,
-                c=magnitude,
-                cmap="jet",
-                s=0.5,
-            )
-        plt.show()
 
 
 class DiskMesh(Mesh):

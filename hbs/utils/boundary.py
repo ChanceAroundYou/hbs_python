@@ -1,5 +1,4 @@
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import CubicSpline
 
@@ -82,35 +81,6 @@ def anti_aliasing(points, kernel_size=5):
         points[:, 1].astype("float64").reshape(1, -1), (1, kernel_size), 0
     ).squeeze()
     return np.column_stack((x, y))
-
-
-def plot_boundary(boundary, with_line=True, scale=1):
-    num_points = boundary.shape[0]
-    x_min, x_max = np.min(boundary[:, 0]), np.max(boundary[:, 0])
-    y_min, y_max = np.min(boundary[:, 1]), np.max(boundary[:, 1])
-    aspect_ratio = (x_max - x_min) / (y_max - y_min)
-
-    fig_size = (num_points / 60 * scale * aspect_ratio, num_points / 60 * scale)
-    plt.figure(figsize=fig_size)
-    if with_line:
-        plt.plot(
-            boundary[:, 0],
-            boundary[:, 1],
-            linestyle="-",
-            linewidth=1 * scale,
-            color="white",
-            label="Boundary Line",
-        )
-    plt.scatter(
-        boundary[:, 0],
-        boundary[:, 1],
-        marker="o",
-        s=15 * scale,
-        edgecolor="lightgreen",
-        facecolor="none",
-        label="Boundary Points",
-    )
-    plt.show()
 
 
 def smooth_resample(points, num_points=None):
