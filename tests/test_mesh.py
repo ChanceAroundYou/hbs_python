@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from hbs.mesh import Mesh, get_rect, get_unit_disk
+from hbs.mesh import Mesh, get_rect, get_unit_disk, get_unit_disk_in_rect
 
 
 @pytest.fixture
@@ -47,3 +47,16 @@ def test_laplacian_shape_and_constant_kernel(m):
     ones = np.ones(m.vert_num)
     lap = np.asarray(m.laplacian @ ones).ravel()
     assert np.allclose(lap, 0.0, atol=1e-8)
+
+
+def test_get_unit_disk_in_rect():
+    base = get_unit_disk(0.05, 100)
+    inr = get_unit_disk_in_rect(base, height=4, width=4, density=0.05)
+    # 圆盘部分保留，矩形外圈顶点追加
+    assert inr.circle_num == 100
+    assert inr.in_vert_num == base.in_vert_num
+    assert inr.out_vert_num > 0
+    assert inr.face_num > base.face_num
+    # 全部顶点在矩形内（半宽/半高 = 2）；out_vert 全在单位圆外
+    assert np.abs(inr.vert).max() <= 2.0 + 1e-9
+    assert np.linalg.norm(inr.out_vert, axis=1).min() > 1.0
