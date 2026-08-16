@@ -72,8 +72,8 @@ def reconstruct_from_hbs(
     :param `disk`: DiskMesh object
     :param `eps`: LSQC 稳定性正则化（尖角处 |mu|→1 病态，>0 改善重建，默认 0）
     :param `enhance`: 尖角增强（默认 False）。LSQC（P1 元）在 |mu|→1 退化区
-        面积塌缩 → 尖角（爪/嘴）丢失。True 时用解析奇异解填充退化区
-        + 焊接前角度重采样，实测尖角保留 2-4 倍改善。
+        面积塌缩 → 尖角（爪/嘴）丢失。True 时压缩 seam 塌缩核（焊接输出
+        只由 seam 决定），实测尖角数量/角度一致提升；部分样本自交略增。
     :return:
         `bound_points`: `disk.circle_num` x 2 array, boundary points
         `in_points`: `disk.in_vert_num` x 2 array, inner points
@@ -96,16 +96,14 @@ def reconstruct_from_hbs(
     landmark = np.where(one_pos | zero_pos)[0]
 
     mapping = lsqc_solver(hbs, landmark, target, disk, eps)
-    if enhance:
-        from hbs.utils.enhance import analytic_extend, detect_singularities, angle_resample_boundary
-
-        mapping = analytic_extend(disk, hbs, mapping, detect_singularities(disk, hbs))
     bound_points = mapping[: disk.circle_num]
     in_points = mapping[: disk.in_vert_num + disk.circle_num]
     out_points = mapping[disk.in_vert_num + disk.circle_num :]
 
     if enhance:
-        bound_points = angle_resample_boundary(bound_points)
+        from hbs.utils.enhance import sharpen_seam
+
+        bound_points = sharpen_seam(bound_points)
     in_points, out_points = geodesic_welding(
         to_complex(in_points),
         to_complex(out_points),
