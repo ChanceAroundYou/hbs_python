@@ -12,3 +12,9 @@ dist
 .vscode
 publish.sh
 Thumbs.db
+.venv/
+.pytest_cache/
+.mindfs/
+.omc/
+bench/
+.claude/
