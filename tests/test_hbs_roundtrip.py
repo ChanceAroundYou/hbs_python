@@ -1,4 +1,4 @@
-"""HBS round-trip + 方向不变回归测试（锁定前向修复 + 记录重建局限）。"""
+"""HBS round-trip + 方向不变回归测试（锁定前向修复 + 重建尺度定律 1/rx²）。"""
 import numpy as np
 import pytest
 
@@ -51,16 +51,14 @@ def test_circle_roundtrip_area(disk):
     assert abs(ratio - 1.0) < 0.2
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="已知局限：近圆（微小 μ）seam 在病态焊接下退化，面积比≈0.7 而非 1。"
-    "记录在案，勿当修复目标（见 CLAUDE.md 重建局限）。",
-)
-def test_near_circle_reconstruction_known_limitation(disk):
-    # 轻微椭圆（rx=1.2, μ~0.09）→ 只重建出 70% 面积。这是焊接条件数病态的真实表现，
-    # 不是测试写错。锁死以文档化，重构后行为不得意外改变。
-    ratio = _roundtrip_area_ratio(_ellipse(1.2, 1.0), disk)
-    assert abs(ratio - 1.0) < 0.2
+def test_roundtrip_area_scales_with_landmark(disk):
+    # μ 尺度不变：重建尺度由 landmark（disk 的 (1,0)→target(1,0)）决定，强制形状 x 半轴
+    # →1.0，面积比 = 1/rx²（形状本身保真，纯均匀缩放 rec×rx≈orig）。非 seam 退化、
+    # 非近圆病态——是 μ 表示法的数学事实。锁死该定律，landmark 逻辑变动会在此捕获。
+    rx = 1.2
+    ratio = _roundtrip_area_ratio(_ellipse(rx, 1.0), disk)
+    assert np.isfinite(ratio)
+    assert abs(ratio - 1 / rx**2) < 0.2
 
 
 @pytest.mark.slow
