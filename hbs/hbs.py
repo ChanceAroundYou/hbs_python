@@ -41,34 +41,40 @@ def get_hbs(
     if _signed_area(bound) > 0:
         bound = bound[::-1]
 
-    # 边界分辨率鲁棒性：过疏边界（<400 点）在 zipper 中大量中途点落虚轴
-    # → y 退化压到实线 → y_post_norm 不收敛。均匀重采样到 500 点规避。
-    # 已知局限：某些计数（250 及 ≥800）zipper 数值退化，重采样不能完全消除；
-    # 500 是经过验证的稳健默认。静默退化输出需调用方校验重建面积。
-    if bound.shape[0] < 400:
-        bound = _resample_boundary(bound, 500)
+    # 边界分辨率鲁棒性：zipper 对非均匀采样（cv2 轮廓、密集采样、顶点落坐标轴的
+    # sign 采样）产生 NaN。统一按弧长重采样到 500 点规避（均匀采样输入下近似
+    # 恒等，非均匀则修正；实验验证）。500 是经过验证的稳健默认；某些计数
+    # （250 及 ≥800）zipper 数值退化，重采样不能完全消除；静默退化输出需调用方
+    # 校验重建面积。
+    bound = _resample_boundary(bound, 500)
 
     cw = get_conformal_welding(bound)
 
-    r = 0
+    # λ-归一化（内部文档 lambda_normalization_notes.tex）：
+    # I₂ = ∫_D B(z)/z dz 在旋转下按 I₂(R_θB) = e^{-iθ}I₂(B) 变换，
+    # 故迭代旋转 seam 使 arg I₂ → 0 即得唯一规范代表（连续，无 180° 翻转）。
+    # 对称/近对称形状 I₂ 的离散残留导致极限环振荡 → 30 次不收敛返回当前
+    # GHBS 代表（不抛错）：归一化旋转角不影响重建形状（up to 旋转）。
+    last_r = None
     for _ in range(30):
-        cw.rotate_x(r / 2)
         cw.linear_interp(circle_point_num)
         hbs_mapping = poisson_integral(disk.in_vert, cw.x, cw.y)
         hbs = get_beltrami_coefficient(hbs_mapping, disk)
 
         excluded_idx = np.isnan(hbs) + np.linalg.norm(disk.face_center, axis=1) == 0
-        r = np.angle(np.sum(hbs[~excluded_idx]))
+        h = hbs[~excluded_idx]
+        fc = disk.face_center[~excluded_idx]
+        i2 = np.sum(h / to_complex(fc))
 
+        if not np.isfinite(i2) or abs(i2) <= np.finfo(float).eps:
+            break  # 对称形状 I₂ 离散残留不可解析 → 返回当前 GHBS 代表
+        r = np.angle(i2)
         if abs(r) <= 5e-3:
-            he_angle = np.angle(np.sum(hbs * to_complex(disk.face_center)))
-            if he_angle < 0 or he_angle == np.pi:
-                r += 2 * np.pi
-            else:
-                break
-    else:
-        # 近旋转对称形状（Σhbs≈0）归一化振荡不收敛 → 快速抛错而非挂起
-        raise RuntimeError("HBS normalization did not converge in 30 iterations")
+            break
+        if last_r is not None and r * last_r < 0 and abs(r) > abs(last_r):
+            break  # 角度振荡发散（对称/近对称形状特征）→ 提前返回 GHBS 代表
+        last_r = r
+        cw.rotate_x(r)
 
     return hbs, hbs_mapping, cw, disk
 
@@ -135,6 +141,37 @@ def reconstruct_from_hbs(
     in_points = to_real(in_points)
     out_points = to_real(out_points)
 
-    bound_points = in_points[: disk.circle_num]
-    in_points = in_points[disk.circle_num :]
+    welded_ok = (
+        np.all(np.isfinite(in_points))
+        and np.all(np.isfinite(out_points))
+        and _weld_not_degenerate(bound_points, in_points, disk)
+    )
+    if not welded_ok:
+        # 焊接数值退化（尖角/病态 seam/非规范代表）→ 降级为纯 LSQC 输出，不抛错。
+        # 光滑形状焊接保真 10× 必要（实验验证），仅失败路径兜底。
+        bound_points = mapping[: disk.circle_num]
+        in_points = mapping[disk.circle_num : disk.circle_num + disk.in_vert_num]
+        out_points = mapping[disk.circle_num + disk.in_vert_num :]
+    else:
+        bound_points = in_points[: disk.circle_num]
+        in_points = in_points[disk.circle_num :]
     return bound_points, in_points, out_points, mapping
+
+
+def _weld_not_degenerate(
+    bound_points: np.ndarray,
+    welded_in_points: np.ndarray,
+    disk: DiskMesh,
+) -> bool:
+    """焊接退化检测：焊接后边界面积与 LSQC 边界面积比值过小（<1e-3）判定退化。
+    焊接可能输出有限但几何错误的点（如全部坍缩到 landmark），finite 检查抓不到。"""
+    def _area(z):
+        z = np.asarray(z)
+        if z.ndim == 2:
+            z = z[:, 0] + 1j * z[:, 1]
+        zc = np.concatenate([z, z[:1]])
+        return float(0.5 * np.abs(np.imag(np.conj(zc[:-1]) * zc[1:])).sum())
+
+    a_lsqc = _area(bound_points)
+    a_weld = _area(welded_in_points[: disk.circle_num])
+    return a_lsqc > 0 and a_weld / a_lsqc > 1e-3

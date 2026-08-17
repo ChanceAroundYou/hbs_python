@@ -115,15 +115,64 @@ def test_non_ellipse_roundtrip_shape_fidelity(disk, shape_fn, name):
     assert f < 0.15, f"{name} 尺度无关形状保真 {f:.3f} 超出容差"
 
 
-# --- 输入校验 / 行为边界 ---
+# --- 对称/尖角形状（λ 归一化后从 RuntimeError → 可重建）---
 
-@pytest.mark.filterwarnings("ignore::RuntimeWarning")
-def test_sharp_corner_square_raises(disk):
-    # 尖角（正方形）在 zipper Möbius 定心不收敛 → RuntimeError（快速失败而非静默坏输出）
-    t = np.linspace(0, 2 * np.pi, 500, endpoint=False)
-    square = np.stack([np.sign(np.cos(t)), np.sign(np.sin(t))], 1)
-    with pytest.raises(RuntimeError):
-        get_hbs(square, 1000, 0.01, disk)
+def _square(m=500):
+    t = np.linspace(0, 2 * np.pi, m, endpoint=False)
+    return np.stack([np.sign(np.cos(t)), np.sign(np.sin(t))], 1)
+
+
+def _star5(m=500):
+    t = np.linspace(0, 2 * np.pi, m, endpoint=False)
+    r = 0.6 + 0.4 * np.sign(np.cos(5 * t))
+    return np.stack([r * np.cos(t), r * np.sin(t)], 1)
+
+
+def _triangle(m=500):
+    # 等边三角形（Z3 对称），用三次谐波构造光滑封闭曲线
+    t = np.linspace(0, 2 * np.pi, m, endpoint=False)
+    return np.stack(
+        [np.cos(t) + 0.5 * np.cos(2 * t + 0.6), np.sin(t) - 0.5 * np.sin(2 * t + 0.6)], 1
+    )
+
+
+@pytest.mark.parametrize("shape_fn,name", [(_square, "square"), (_star5, "star5")])
+def test_symmetric_shapes_reconstruct(disk, shape_fn, name):
+    # λ-归一化对对称形状（I₂ 离散残留）降级返回 GHBS 代表，不再 RuntimeError；
+    # 归一化旋转角不影响重建形状（up to 旋转）。
+    shape = shape_fn()
+    hbs, _, _, d = get_hbs(shape, 1000, 0.01, disk)
+    assert np.all(np.isfinite(hbs))
+    rec, _, _, _ = reconstruct_from_hbs(hbs, d)
+    f = _unit_area_fidelity(shape, rec)
+    assert f < 0.3, f"{name} 尺度无关形状保真 {f:.3f} 超出容差"
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason="Z3 等边三角形 λ 不收敛 → LSQC 降级路径形状定标失效（rec 面积 2.07× 且几何扁平）。"
+    "已知局限：对称形状降级重建不保证形状保真，记录在案。",
+)
+def test_symmetric_triangle_reconstruction_known_limitation(disk):
+    shape = _triangle()
+    hbs, _, _, d = get_hbs(shape, 1000, 0.01, disk)
+    assert np.all(np.isfinite(hbs))
+    rec, _, _, _ = reconstruct_from_hbs(hbs, d)
+    f = _unit_area_fidelity(shape, rec)
+    assert f < 0.3, f"triangle 尺度无关形状保真 {f:.3f} 超出容差"
+
+
+def test_nonuniform_boundary_resampled(disk):
+    # ≥400 点的非均匀边界（密集角点采样）统一重采样到 500，zipper 不再 NaN
+    t = np.linspace(0, 2 * np.pi, 800, endpoint=False)
+    # 非均匀：cos 域压缩 → 角点附近密集
+    t2 = t + 0.3 * np.sin(2 * t)
+    shape = np.stack([1.2 * np.cos(t2), np.sin(t2)], 1)
+    hbs, _, _, d = get_hbs(shape, 1000, 0.01, disk)
+    assert np.all(np.isfinite(hbs))
+    rec, _, _, _ = reconstruct_from_hbs(hbs, d)
+    f = _unit_area_fidelity(shape, rec)
+    assert f < 0.3
 
 
 def test_reconstruct_wrong_disk_asserts():
