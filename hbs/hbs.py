@@ -1,12 +1,20 @@
 import numpy as np
+from scipy.ndimage import gaussian_filter1d
 
-from hbs.conformal_welding import ConformalWelding, get_conformal_welding
+from hbs.conformal_welding import (
+    ConformalWelding,
+    ConformalWeldingNumericalError,
+    get_conformal_welding,
+)
 from hbs.mesh import DiskMesh, get_unit_disk
 
 from hbs.qc import get_beltrami_coefficient, lsqc_solver
 from hbs.utils.geodesic_welding import geodesic_welding
 from hbs.utils.poisson import integral as poisson_integral
 from hbs.utils.cast import to_complex, to_real
+
+
+_LAMBDA_MAX_ITERATIONS = 8
 
 
 def get_hbs(
@@ -35,6 +43,8 @@ def get_hbs(
     if disk is None:
         disk = get_unit_disk(density, circle_point_num)
 
+    _validate_boundary(bound)
+
     # 边界方向规范化：harmonic extension 只在顺时针边界（math 约定 signed area<0）
     # 上产生 |μ|<1 的拟共形场；逆时针输入 → |μ|>1 全盘饱和 → μ 失真。
     # 图轮廓（cv2）与合成形状方向可能不一致，统一翻转为顺时针。
@@ -48,35 +58,76 @@ def get_hbs(
     # 校验重建面积。
     bound = _resample_boundary(bound, 500)
 
-    cw = get_conformal_welding(bound)
+    try:
+        cw = get_conformal_welding(bound)
+    except ConformalWeldingNumericalError:
+        smoothed = gaussian_filter1d(bound, 2.0, axis=0, mode="wrap")
+        try:
+            cw = get_conformal_welding(smoothed)
+        except ConformalWeldingNumericalError as retry_error:
+            raise ValueError(
+                "boundary is too noisy or degenerate for conformal welding"
+            ) from retry_error
 
     # λ-归一化（内部文档 lambda_normalization_notes.tex）：
     # I₂ = ∫_D B(z)/z dz 在旋转下按 I₂(R_θB) = e^{-iθ}I₂(B) 变换，
     # 故迭代旋转 seam 使 arg I₂ → 0 即得唯一规范代表（连续，无 180° 翻转）。
-    # 对称/近对称形状 I₂ 的离散残留导致极限环振荡 → 30 次不收敛返回当前
+    # 对称/近对称形状 I₂ 的离散残留导致极限环振荡 → 至多 8 次后返回当前
     # GHBS 代表（不抛错）：归一化旋转角不影响重建形状（up to 旋转）。
     last_r = None
-    for _ in range(30):
+    for _ in range(_LAMBDA_MAX_ITERATIONS):
         cw.linear_interp(circle_point_num)
         hbs_mapping = poisson_integral(disk.in_vert, cw.x, cw.y)
         hbs = get_beltrami_coefficient(hbs_mapping, disk)
 
-        excluded_idx = np.isnan(hbs) + np.linalg.norm(disk.face_center, axis=1) == 0
-        h = hbs[~excluded_idx]
-        fc = disk.face_center[~excluded_idx]
-        i2 = np.sum(h / to_complex(fc))
-
-        if not np.isfinite(i2) or abs(i2) <= np.finfo(float).eps:
-            break  # 对称形状 I₂ 离散残留不可解析 → 返回当前 GHBS 代表
-        r = np.angle(i2)
-        if abs(r) <= 5e-3:
-            break
+        r = _lambda_phase(hbs, disk.face_center, disk.area)
+        if r is None or abs(r) <= 5e-3:
+            break  # 对称/近对称形状没有可用的 I₂ 相位 → 返回当前 GHBS 代表
         if last_r is not None and r * last_r < 0 and abs(r) > abs(last_r):
             break  # 角度振荡发散（对称/近对称形状特征）→ 提前返回 GHBS 代表
         last_r = r
         cw.rotate_x(r)
 
     return hbs, hbs_mapping, cw, disk
+
+
+def _lambda_phase(
+    hbs: np.ndarray[np.complexfloating],
+    face_center: np.ndarray[np.floating],
+    face_area: np.ndarray[np.floating],
+    confidence_threshold: float = 1e-4,
+) -> float | None:
+    """Return arg(I₂) only when its area-weighted direction is trustworthy."""
+    assert hbs.ndim == 1 and face_center.shape == (hbs.shape[0], 2)
+    assert face_area.shape == hbs.shape
+    center = to_complex(face_center)
+    valid = np.isfinite(hbs) & (np.abs(center) > np.finfo(float).eps)
+    if not valid.any():
+        return None
+    term = hbs[valid] * np.abs(face_area[valid]) / center[valid]
+    magnitude = np.abs(term).sum()
+    if not np.isfinite(magnitude) or magnitude <= np.finfo(float).eps:
+        return None
+    i2 = term.sum()
+    if not np.isfinite(i2) or np.abs(i2) / magnitude < confidence_threshold:
+        return None
+    return float(np.angle(i2))
+
+
+def _validate_boundary(bound: np.ndarray[np.floating]) -> None:
+    """Reject invalid closed curves before numerical conformal welding."""
+    if not isinstance(bound, np.ndarray) or bound.ndim != 2 or bound.shape[1] != 2:
+        raise ValueError("boundary must be a finite n x 2 array")
+    if bound.shape[0] < 3 or not np.issubdtype(bound.dtype, np.number):
+        raise ValueError("boundary must contain at least three numeric points")
+    if not np.all(np.isfinite(bound)) or np.unique(bound, axis=0).shape[0] < 3:
+        raise ValueError("boundary must contain at least three distinct finite points")
+    closed = np.vstack([bound, bound[:1]])
+    perimeter = np.linalg.norm(np.diff(closed, axis=0), axis=1).sum()
+    if not np.isfinite(perimeter) or perimeter <= np.finfo(float).eps:
+        raise ValueError("boundary must have positive perimeter")
+    if abs(_signed_area(bound)) <= np.finfo(float).eps * perimeter**2:
+        raise ValueError("boundary must enclose non-zero area")
 
 
 def _signed_area(bound: np.ndarray[np.floating]) -> float:
