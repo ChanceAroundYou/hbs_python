@@ -1,9 +1,15 @@
 import numpy as np
+import warnings
+
 from scipy.interpolate import interp1d
 
 from hbs.utils.mobius import mobius, mobius_inv
 from hbs.utils.cast import to_complex
 from hbs.utils.zipper import zipper, zipper_params
+
+
+class ConformalWeldingNumericalError(RuntimeError):
+    """The zipper pipeline cannot produce a usable circle correspondence."""
 
 
 class ConformalWelding:
@@ -36,6 +42,8 @@ class ConformalWelding:
         self._set_init_y(y)
 
     def _set_init_x(self, x: np.ndarray[np.complexfloating]):
+        if x.size < 2 or not np.all(np.isfinite(x)):
+            raise ConformalWeldingNumericalError("zipper produced an invalid outer boundary")
         x_angle = np.angle(x)
         x_angle_diff = np.diff(x_angle)
         min_pos = np.argmin(x_angle_diff)
@@ -161,11 +169,24 @@ def get_conformal_welding(bound: np.ndarray[np.floating]) -> ConformalWelding:
     ), "bound must be n x 2 real array with float type"
 
     bound = to_complex(bound)
-    x, _, x_params = zipper(bound)
-    y, _, _ = zipper(np.flipud(bound))
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            x, _, x_params = zipper(bound)
+            y, _, _ = zipper(np.flipud(bound))
+            if min(x.size, y.size, x_params.size) < 2 or not (
+                np.all(np.isfinite(x))
+                and np.all(np.isfinite(y))
+                and np.all(np.isfinite(x_params))
+            ):
+                raise ConformalWeldingNumericalError("zipper produced non-finite values")
 
-    cw = ConformalWelding(x, y, x_params)
-    cw.x_post_norm()
-    cw.y_post_norm()
-    cw.uniquify()
+            cw = ConformalWelding(x, y, x_params)
+            cw.x_post_norm()
+            cw.y_post_norm()
+            cw.uniquify()
+    except (ConformalWeldingNumericalError, RuntimeError, ValueError) as exc:
+        if isinstance(exc, ConformalWeldingNumericalError):
+            raise
+        raise ConformalWeldingNumericalError("zipper normalization failed") from exc
     return cw

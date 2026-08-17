@@ -195,6 +195,23 @@ def test_get_hbs_auto_disk_roundtrip():
     assert np.all(np.isfinite(rec))
 
 
+def test_welding_runtime_error_falls_back_to_lsqc(disk, monkeypatch):
+    """焊接抛 RuntimeError（噪声/退化边界）→ 降级为纯 LSQC 输出，不向外抛异常。（修复 1.x：兜底原先只查 NaN 输出，不 catch 焊接异常）"""
+    import hbs.hbs as hbs_mod
+
+    def _boom(*a, **k):
+        raise RuntimeError("y_post_norm did not converge")
+
+    monkeypatch.setattr(hbs_mod, "geodesic_welding", _boom)
+    hbs, _, _, _ = get_hbs(_ellipse(1.0, 0.5), 1000, 0.01, disk)
+    # 不抛异常，且回到 LSQC 边界（焊接前的圆化形态也算有限输出）
+    bound, in_points, out_points, _ = reconstruct_from_hbs(hbs, disk)
+    assert np.isfinite(bound).all()
+    assert np.isfinite(in_points).all()
+    assert np.isfinite(out_points).all()
+    assert bound.shape == (disk.circle_num, 2)
+
+
 @pytest.mark.slow
 def test_many_boundaries_healthy_regime(disk):
     """分辨率/长宽比冒烟：中等形变区间 300/500/800 全不崩且面积比合理。"""
