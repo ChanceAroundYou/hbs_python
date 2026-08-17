@@ -132,20 +132,23 @@ def reconstruct_from_hbs(
     in_points = mapping[: disk.in_vert_num + disk.circle_num]
     out_points = mapping[disk.in_vert_num + disk.circle_num :]
 
-    in_points, out_points = geodesic_welding(
-        to_complex(in_points),
-        to_complex(out_points),
-        to_complex(bound_points),
-        to_complex(disk.circle),
-    )
-    in_points = to_real(in_points)
-    out_points = to_real(out_points)
-
-    welded_ok = (
-        np.all(np.isfinite(in_points))
-        and np.all(np.isfinite(out_points))
-        and _weld_not_degenerate(bound_points, in_points, disk)
-    )
+    try:
+        in_points, out_points = geodesic_welding(
+            to_complex(in_points),
+            to_complex(out_points),
+            to_complex(bound_points),
+            to_complex(disk.circle),
+        )
+    except RuntimeError:
+        welded_ok = False
+    else:
+        in_points = to_real(in_points)
+        out_points = to_real(out_points)
+        welded_ok = (
+            np.all(np.isfinite(in_points))
+            and np.all(np.isfinite(out_points))
+            and _weld_not_degenerate(bound_points, in_points, disk)
+        )
     if not welded_ok:
         # 焊接数值退化（尖角/病态 seam/非规范代表）→ 降级为纯 LSQC 输出，不抛错。
         # 光滑形状焊接保真 10× 必要（实验验证），仅失败路径兜底。
