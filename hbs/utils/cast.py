@@ -1,4 +1,6 @@
 """数组格式转换工具（real ↔ complex）。"""
+from __future__ import annotations
+
 import numpy as np
 
 

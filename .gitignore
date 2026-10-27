@@ -18,3 +18,5 @@ Thumbs.db
 .omc/
 bench/
 .claude/
+# GPL 隔离区：只在本地保留，不随 MIT 仓库分发
+unpublished_gpl/

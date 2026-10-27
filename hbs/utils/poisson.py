@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy as np
 
 from .cast import to_complex, to_real

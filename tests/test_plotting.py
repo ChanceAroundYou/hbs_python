@@ -3,6 +3,7 @@ import subprocess
 import sys
 
 import numpy as np
+import pytest
 
 from hbs import get_hbs
 from hbs.mesh import get_rect, get_unit_disk
@@ -32,6 +33,7 @@ def test_plotting_module_importable_lazily():
 
 
 def test_plot_functions_exist():
+    pytest.importorskip("matplotlib", reason="绘图函数存在性检查需要 matplotlib")
     import matplotlib.pyplot as plt  # noqa: F401  # 显式拉入
 
     from hbs.plotting import (

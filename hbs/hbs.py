@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import warnings
+
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 
@@ -22,6 +26,7 @@ def get_hbs(
     circle_point_num: int = 500,
     density: float = 0.01,
     disk: DiskMesh = None,
+    method: str = "angular",
 ) -> tuple[
     np.ndarray[np.complexfloating],
     np.ndarray[np.floating],
@@ -30,16 +35,48 @@ def get_hbs(
 ]:
     """
     Get Beltrami coefficients from boundary points
+
+    2.0.0 起默认 `method="angular"`：角速度求解
+    (`hbs.angular.angular_mu_from_boundary` + FEM 落场桥接)。在冻结
+    shape100-v1 上、与 Zipper 同口径实测 [X]：端到端（求解+重建）合法
+    90/100（Zipper 91/100，且 Zipper 另有 5 例解出自交曲线）、中位 0.67 s
+    vs 2.24 s；共同通过的 86 例上重建中位 Chamfer 低 12.6×、excess（已除
+    分辨率地板）低 18.2×。
+    `method="zipper"` 保留 1.1.0 行为（焊接 + λ-归一化）。
+    返回契约不变：`(hbs[face], field, cw_or_None, disk)` 可直接喂
+    `reconstruct_from_hbs`（重建后端一行不改）。
+
     :param `bound`: `n x 2` array, boundary points
-    :param `circle_point_num`: number of points on the circle
-    :param `density`: density of the mesh
-    :param `disk`: DiskMesh object
+    :param `circle_point_num`: number of points on the circle（zipper 用；angular 用固定网格，显式传非默认值会告警）
+    :param `density`: density of the mesh（zipper 用；angular 同上）
+    :param `disk`: DiskMesh object（angular 下传入即原样使用，不做回退校验）
+    :param `method`: "angular"（默认）或 "zipper"（1.1.0 兼容）
     :return:
         `hbs`: `n` x 1 complex array, Beltrami coefficients defined on triangles
-        `he`: `n` x 1 float array, harmonice extension of `hbs`
-        `cw`: ConformalWelding object
+        `he`: field/extension（angular 为 FEM 场实数组，zipper 为 Poisson 映射）
+        `cw`: ConformalWelding object（zipper）或 None（angular）
         `disk`: DiskMesh object
     """
+    if method == "angular":
+        # circle_point_num/density 只服务 zipper 的 get_unit_disk；angular 走固定网格。
+        # 仅在调用方显式传了非默认值且未自带 disk 时告警。
+        if disk is None and (circle_point_num != 500 or density != 0.01):
+            warnings.warn(
+                'method="angular" ignores circle_point_num/density and uses a '
+                "fixed (density=0.04, circle=512) mesh; pass `disk=` to control "
+                'the mesh explicitly, or method="zipper" for the 1.1.0 path',
+                UserWarning,
+                stacklevel=2,
+            )
+        _validate_boundary(bound)
+        from hbs.angular import angular_mu_from_boundary
+
+        hbs, field, used_disk, _result, _stats = angular_mu_from_boundary(
+            bound, disk=disk
+        )
+        return hbs, field, None, used_disk
+    if method != "zipper":
+        raise ValueError('method must be "angular" or "zipper"')
     if disk is None:
         disk = get_unit_disk(density, circle_point_num)
 
@@ -150,7 +187,9 @@ def _resample_boundary(bound: np.ndarray[np.floating], num: int) -> np.ndarray:
 
 
 def reconstruct_from_hbs(
-    hbs: np.ndarray[np.complexfloating], disk: DiskMesh, eps: float = 0.0
+    hbs: np.ndarray[np.complexfloating],
+    disk: DiskMesh,
+    eps: float = 0.0,
 ):
     """
     Reconstruct original shape from HBS

@@ -186,10 +186,23 @@ def test_reconstruct_wrong_disk_asserts():
 
 
 def test_get_hbs_auto_disk_roundtrip():
-    # 不传 disk → 自动建（circle_point_num=500），返回的 disk 可用于重建
+    # 2.0.0：默认 method="angular" 用固定网格 (density=0.04, circle=512)，
+    # 忽略 circle_point_num/density；返回的 disk 可直接用于重建。
     t = np.linspace(0, 2 * np.pi, 500, endpoint=False)
     ell = np.stack([1.2 * np.cos(t), np.sin(t)], 1)
-    hbs, _, _, disk = get_hbs(ell, 500, 0.01)
+    hbs, _, cw, disk = get_hbs(ell, 500, 0.01)
+    assert cw is None  # angular 路径无 ConformalWelding
+    assert disk.circle_num == 512
+    rec, _, _, _ = reconstruct_from_hbs(hbs, disk)
+    assert np.all(np.isfinite(rec))
+
+
+def test_get_hbs_zipper_auto_disk_still_honours_circle_point_num():
+    # method="zipper" 保留 1.1.0 语义：circle_point_num 决定自动建盘的边界点数。
+    t = np.linspace(0, 2 * np.pi, 500, endpoint=False)
+    ell = np.stack([1.2 * np.cos(t), np.sin(t)], 1)
+    hbs, _, cw, disk = get_hbs(ell, 500, 0.01, method="zipper")
+    assert cw is not None
     assert disk.circle_num == 500
     rec, _, _, _ = reconstruct_from_hbs(hbs, disk)
     assert np.all(np.isfinite(rec))

@@ -2,7 +2,10 @@
 
 A Python library for complex analysis and conformal mapping computations.
 """
+__version__ = "2.0.0"
+
 from .hbs import get_hbs, reconstruct_from_hbs
+from .angular import angular_mu_from_boundary
 from .qc import get_beltrami_coefficient, lsqc_solver, mu_chop
 from .conformal_welding import ConformalWelding, get_conformal_welding
 from .mesh import DiskMesh, Mesh, get_rect, get_unit_disk, get_unit_disk_in_rect
@@ -13,8 +16,10 @@ from . import qc
 from . import utils
 
 __all__ = [
+    "__version__",
     # HBS 主流程
     "get_hbs",
+    "angular_mu_from_boundary",
     "reconstruct_from_hbs",
     # 拟共形
     "get_beltrami_coefficient",

@@ -1,4 +1,6 @@
 """Beltrami 系数计算与截断（μ 域）。"""
+from __future__ import annotations
+
 import numpy as np
 
 from hbs.mesh import Mesh
