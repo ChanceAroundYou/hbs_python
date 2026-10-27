@@ -63,8 +63,9 @@ Top-level `import hbs` exposes the full public API:
 Backward-compatible shims keep old internal paths working:
 `hbs.qc.bc` → `hbs.qc.beltrami`, `hbs.utils.tool_functions` → `hbs.utils.cast` + `hbs.qc.beltrami`.
 
-See [`CHANGELOG.md`](CHANGELOG.md) for the solver comparison, measured
-benchmarks, and everything that changed in 2.0.0 / 2.0.1.
+See [`CHANGELOG.md`](https://github.com/ChanceAroundYou/hbs_python/blob/main/CHANGELOG.md)
+for the solver comparison, measured benchmarks, and everything that changed in
+2.0.0 / 2.0.1 / 2.0.2.
 
 ## Usage Example
 
@@ -132,7 +133,7 @@ Core compute (HBS, mesh, LSQC, welding) works without matplotlib.
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+MIT — see [`LICENSE`](https://github.com/ChanceAroundYou/hbs_python/blob/main/LICENSE).
 
 ## Contributing
 

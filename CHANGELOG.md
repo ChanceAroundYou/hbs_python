@@ -4,6 +4,17 @@ All notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [SemVer](https://semver.org/).
 
+## [2.0.2] — 2026-10-27
+
+Documentation links only. **No change to any numerical result.**
+
+### Fixed
+
+- `README.md` now links `CHANGELOG.md` and `LICENSE` with absolute GitHub
+  URLs. Relative links render fine on GitHub but are dead on PyPI, whose
+  project page is a single-page app that answers every path with 200 — so the
+  sole entry point to the changelog silently went nowhere.
+
 ## [2.0.1] — 2026-10-27
 
 Documentation and metadata only. **No change to any numerical result.**
@@ -124,5 +135,6 @@ no smooth reparameterization that fixes it.
   `post_deepen` parameter was removed entirely.
 - Nothing else in the public API changed.
 
+[2.0.2]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/ChanceAroundYou/hbs_python/compare/v1.1.0...v2.0.0
