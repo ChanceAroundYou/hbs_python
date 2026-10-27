@@ -42,7 +42,9 @@ def get_hbs(
     90/100（Zipper 91/100，且 Zipper 另有 5 例解出自交曲线）、中位 0.67 s
     vs 2.24 s；共同通过的 86 例上重建中位 Chamfer 低 12.6×、excess（已除
     分辨率地板）低 18.2×。
-    `method="zipper"` 保留 1.1.0 行为（焊接 + λ-归一化）。
+    `method="zipper"` 走 1.1.0 的焊接求解路径与返回契约（`cw` 非 None），
+    但 λ-归一化已改为面积加权 I₂ 相位，seam 落点与 1.1.0 不同，重建读数
+    不能当作 1.1.0 的复现（要复现请装 `hbs==1.1.0`）。
     返回契约不变：`(hbs[face], field, cw_or_None, disk)` 可直接喂
     `reconstruct_from_hbs`（重建后端一行不改）。
 
@@ -50,7 +52,7 @@ def get_hbs(
     :param `circle_point_num`: number of points on the circle（zipper 用；angular 用固定网格，显式传非默认值会告警）
     :param `density`: density of the mesh（zipper 用；angular 同上）
     :param `disk`: DiskMesh object（angular 下传入即原样使用，不做回退校验）
-    :param `method`: "angular"（默认）或 "zipper"（1.1.0 兼容）
+    :param `method`: "angular"（默认）或 "zipper"（1.1.0 焊接路径；归一化已更换）
     :return:
         `hbs`: `n` x 1 complex array, Beltrami coefficients defined on triangles
         `he`: field/extension（angular 为 FEM 场实数组，zipper 为 Poisson 映射）
@@ -64,7 +66,7 @@ def get_hbs(
             warnings.warn(
                 'method="angular" ignores circle_point_num/density and uses a '
                 "fixed (density=0.04, circle=512) mesh; pass `disk=` to control "
-                'the mesh explicitly, or method="zipper" for the 1.1.0 path',
+                'the mesh explicitly, or method="zipper" for the welding path',
                 UserWarning,
                 stacklevel=2,
             )

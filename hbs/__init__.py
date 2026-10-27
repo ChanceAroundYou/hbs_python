@@ -2,7 +2,7 @@
 
 A Python library for complex analysis and conformal mapping computations.
 """
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 
 from .hbs import get_hbs, reconstruct_from_hbs
 from .angular import angular_mu_from_boundary

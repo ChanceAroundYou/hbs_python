@@ -37,8 +37,7 @@ or OpenCV-based boundary extraction.
 ## Main Modules
 
 - `hbs.py`: HBS algorithm for computing HBS and recontructing shape from HBS
-- `angular.py`: Angular-velocity forward solver (the 2.0.0 default), plus the
-  failure-only input ladder
+- `angular.py`: Angular-velocity forward solver (the default since 2.0.0)
 - `_angular/`: Vendored angular-velocity and harmonic-extension engine
   (`direct.py`, `joint.py`); depends only on NumPy/SciPy
 - `conformal_welding.py`: Conformal welding algorithm implementation
@@ -64,85 +63,19 @@ Top-level `import hbs` exposes the full public API:
 Backward-compatible shims keep old internal paths working:
 `hbs.qc.bc` → `hbs.qc.beltrami`, `hbs.utils.tool_functions` → `hbs.utils.cast` + `hbs.qc.beltrami`.
 
-## Forward solvers (2.0.0)
-
-`get_hbs` takes `method="angular"` (default since 2.0.0) or `method="zipper"`.
-
-| | `method="angular"` | `method="zipper"` (1.1.0 behavior) |
-|---|---|---|
-| Return `cw` | `None` | `ConformalWelding` |
-| Mesh | fixed `(density=0.04, circle=512)`; `circle_point_num`/`density` ignored | built from `circle_point_num`/`density` |
-| Pass `disk=` | used as-is, no mesh fallback | used as-is |
-| Input smoothing | failure-only ladder (see below) | failure-only Gaussian retry inside welding |
-| Symmetric / sharp shapes | handles them without λ-normalization | λ-normalization may stall and return the GHBS representative |
-
-Both keep the same return contract `(hbs[face], field, cw_or_None, disk)` feeding
-`reconstruct_from_hbs` unchanged.
-
-### Failure-only input ladder (angular)
-
-The angular solver needs a smooth boundary. Pixel-staircase contours from
-`cv2.findContours` and noisy outlines make the raw harmonic-measure density go
-negative and the solve fails outright. In that case — and only then — the input
-is retried as:
-
-```
-raw → arclength resample(500) → resample(500)+Gaussian σ=2 → resample(500)+Gaussian σ=4
-```
-
-The first rung that passes the reconstruction legality gate is returned, and the
-result is flagged:
-
-```python
-from hbs.angular import angular_mu_from_boundary
-mu, field, disk, result, stats = angular_mu_from_boundary(bound)
-stats["boundary_rung"]     # "raw" | "resample500" | "resample500+s2" | "resample500+s4"
-stats["input_smoothed"]    # True iff a fallback rung was used
-```
-
-A `UserWarning` is emitted whenever a fallback rung is used: rescued shapes are
-usable but measurably degraded, so they must not be treated as equivalent to a
-raw-input solve. If every rung fails, `RuntimeError` is raised (with the last
-underlying error chained) instead of returning a degenerate curve.
-
-Measured on the frozen `shape100-v1` set, both engines run through the shipped
-entry points and scored with the same evaluator (legal = reconstruction is a
-simple closed curve):
-
-| | `angular` (default) | `zipper` |
-|---|---|---|
-| legal end-to-end | **90/100** | 91/100 (5 more solve but self-intersect) |
-| median wall clock | **0.67 s** | 2.24 s |
-| median Chamfer, 86 common | **3.84e-05** | 4.84e-04 |
-| median excess over sampling floor | **1.42×** | 25.8× |
-
-Angular wins the Chamfer comparison on 81 of those 86 cases (p = 9.6e-19).
-Measured separately on real MPEG-7 `cv2` contours (similarity- and
-orientation-invariant shape fidelity < 0.30 counted as usable):
-
-| sample | raw angular | + ladder | Zipper |
-|---|---|---|---|
-| 95 cases, design probe | 68 | **72** | 69 |
-| 55 cases, re-checked through the packaged wheel | 37 | **39** | 38 |
-
-On cases both engines solve, angular fidelity is far lower (median 0.0019 vs
-0.1371). Rescued rungs land at fidelity 0.049–0.157 — usable but degraded, hence
-the warning. The remaining outlines (22/95 in the probe, 16/55 in the recheck)
-are rejected by both engines: negatively oriented harmonic-measure density with
-no smooth reparameterization that fixes it.
+See [`CHANGELOG.md`](CHANGELOG.md) for the solver comparison, measured
+benchmarks, and everything that changed in 2.0.0 / 2.0.1.
 
 ## Usage Example
 
 Compute HBS from image
-
-
 
 ```python
 from hbs.utils.boundary import get_boundary
 from hbs import get_hbs
 
 # Boundary points extraction
-# 
+#
 # we don't actually restrict the method of boundary extraction,
 # but this package provides a simple implementation as follows
 img_path = 'img/example.png'
@@ -152,10 +85,7 @@ bound = get_boundary(img_path, bound_point_num)
 # HBS computing
 #
 # it requires boundary points arranged in clockwise order as input, in `np.complex`
-#
-# 2.0.0: the default method="angular" ignores circle_point_num/density and uses a
-# fixed (density=0.04, circle=512) mesh. Pass `disk=` to control the mesh, or
-# method="zipper" for the 1.1.0 behavior (where these two arguments do apply).
+# `method` picks the forward solver; see CHANGELOG.md for the difference.
 hbs, hbs_mapping, cw, disk = get_hbs(bound)
 ```
 
@@ -180,7 +110,7 @@ bound_point_num = 250
 bound = get_boundary(img_path, bound_point_num)
 
 # Conformal welding computing
-# 
+#
 # it also requires boundary points arranged in clockwise order as input, in `np.complex`
 cw = get_conformal_welding(bound)
 ```

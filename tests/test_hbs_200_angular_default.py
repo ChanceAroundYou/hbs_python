@@ -2,8 +2,9 @@
 
 覆盖：
 1. 默认 `method="angular"`：返回契约 `(mu[face], field, None, disk)`，
-   `reconstruct_from_hbs` 原样消费；`__version__ == "2.0.0"`。
-2. `method="zipper"` 兼容：1.1.0 行为保留（`cw` 非 None，`circle_point_num` 生效）。
+   `reconstruct_from_hbs` 原样消费；`__version__ >= 2.0.0`。
+2. `method="zipper"`：焊接路径与返回契约保留（`cw` 非 None，`circle_point_num` 生效），
+   但 λ-归一化已换为 I₂ 相位，数值不等于 1.1.0。
 3. 非法 method 抛 `ValueError`；退化输入抛 `ValueError`（`_validate_boundary`）。
 4. 输入阶梯：原始成功时不启动（无警告、`rung="raw"`）；噪声/阶梯输入失败后
    逐级重试，落点写进 `stats["boundary_rung"]` 并发 `UserWarning`。
@@ -59,8 +60,8 @@ def _stepped_contour(size: int = 512) -> np.ndarray:
     return np.stack([xy[:, 0], -xy[:, 1]], 1)
 
 
-def test_version_is_2_0_0():
-    assert hbs.__version__ == "2.0.0"
+def test_version_at_least_2_0_0():
+    assert tuple(map(int, hbs.__version__.split("."))) >= (2, 0, 0)
 
 
 def test_angular_is_default_and_reconstruct_consumes():

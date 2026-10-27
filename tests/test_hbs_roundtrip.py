@@ -198,7 +198,7 @@ def test_get_hbs_auto_disk_roundtrip():
 
 
 def test_get_hbs_zipper_auto_disk_still_honours_circle_point_num():
-    # method="zipper" 保留 1.1.0 语义：circle_point_num 决定自动建盘的边界点数。
+    # method="zipper"：circle_point_num 仍决定自动建盘的边界点数（归一化已换）。
     t = np.linspace(0, 2 * np.pi, 500, endpoint=False)
     ell = np.stack([1.2 * np.cos(t), np.sin(t)], 1)
     hbs, _, cw, disk = get_hbs(ell, 500, 0.01, method="zipper")

@@ -1,7 +1,7 @@
 """2.0.0：角速度 shape→HBS 求解器，`get_hbs(method="angular")` 的实现。
 
 1.1.0 的 `get_hbs` 只有 Zipper+30 轮归一化路径（尖角/对称系已知不收敛）。
-本模块提供角速度路径；`method="zipper"` 保留 1.1.0 行为。
+本模块提供角速度路径；`method="zipper"` 保留 1.1.0 的焊接路径（归一化已更换）。
 
     bound(n×2 点数组)
       → hbs._angular.direct.compute_direct_hbs_from_boundary  (角速度求解)

@@ -1,7 +1,7 @@
 # HBS（Harmonic Beltrami Signature）— hbs_python
 
 数学库：图像 → 边界 → HBS（Beltrami 系数复向量，定义在三角面心）→ LSQC 重建。
-发布为 PyPI 包 `hbs`（当前 2.0.0，GitHub `ChanceAroundYou/hbs_python`）。
+发布为 PyPI 包 `hbs`（当前 2.0.1，GitHub `ChanceAroundYou/hbs_python`）。
 下游消费方：hbs_generation（VAE 在 HBS 空间生成形状，独立仓库）。
 
 ## 模块地图
@@ -28,7 +28,8 @@ unpublished_gpl/            GPL 隔离区（不在包内、不进 wheel，见下
 tests/                    pytest 回归基座（96 passed + 1 xfailed）
 ```
 
-README.md 有完整结构/安装/extras/前向求解器对照表。
+README.md 只写现行行为（结构/安装/用法/extras）；求解器对照、实测基准与
+2.0.x 变更记录在 CHANGELOG.md。
 
 ## 公共 API
 
@@ -42,8 +43,10 @@ README.md 有完整结构/安装/extras/前向求解器对照表。
   - `method="angular"`（2.0.0 默认）：固定网格 `(density=0.04, circle=512)`，
     **忽略 `circle_point_num`/`density`**（显式传非默认值且未给 `disk` 时 `UserWarning`），
     返回 `cw=None`；显式 `disk=` 原样使用，不做 512→256 网格回退
-  - `method="zipper"`（1.1.0 行为）：`circle_point_num`/`density` 生效，过疏边界
-    （<400 点）自动重采样到 500，返回 `ConformalWelding`，λ-归一化最多 8 轮
+  - `method="zipper"`（焊接路径）：`circle_point_num`/`density` 生效，边界一律按弧长
+    重采样到 500，返回 `ConformalWelding`，λ-归一化最多 8 轮。**不保证数值复现 1.1.0**：
+    归一化已由 `angle(Σμ)`+`rotate_x(r/2)`+30 轮换成面积加权 `I₂` 相位+`rotate_x(r)`+8 轮，
+    seam 落点不同（椭球/花生类形状重建保真差 10–100×）。要复现 1.1.0 读数须装 `hbs==1.1.0`
 - `reconstruct_from_hbs(hbs, disk, eps=0.0)`
   → `(bound_points, in_points, out_points, mapping)`
 - `lsqc_solver(mu, landmark, target, mesh, eps=0.0)`：landmark 顶点索引 → target 位置约束
@@ -85,6 +88,10 @@ MPEG-7 抽样实测 [X]（真实 cv2 轮廓；可用性 = 重建有限非单点 
    angular 默认网格 `(0.04, 512)` → 4280 faces。
 5. **边界分辨率鲁棒性**：angular 下重建点数由 `disk.circle_num`（默认 512）决定；
    zipper 下 500 是验证过的稳健默认，某些计数（250 及 ≥800）数值退化。
+   **seam 旋转不是规范（gauge）**：旋转 seam 会改变重建本身，不只是整体旋转
+   （相似不变残差 0.13–0.55，噪声量级 1e-12）。因此 λ-归一化的落点是需要
+   验证的求解选择，不能当作「可任意选定的表示」——这也是 `method="zipper"`
+   换归一化后数值不再等于 1.1.0 的原因。
 6. **mesh 算子符号约定**：Dx@x = -1, Dy@y = -1（顺时针取向符号），交叉项 0。
 7. **包必须自足**：包内不得 import 研究仓库的顶层模块（`direct_boundary_hbs`、
    `joint_hbs_optimizer`、`upgraded_hbs`）——源码树里它们可导入会掩盖 wheel 断裂。
