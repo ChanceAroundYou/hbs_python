@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
 from hbs._engines import ENGINES
@@ -28,6 +30,7 @@ def get_hbs(
     disk: DiskMesh = None,
     method: str = "angular",
     normalize: str = DEFAULT_NORMALIZE,
+    validate_reconstruction: bool = False,
 ) -> tuple[
     np.ndarray[np.complexfloating],
     np.ndarray[np.floating],
@@ -63,12 +66,26 @@ def get_hbs(
         焊接的采样点数，网格本身原样使用
     :param `method`: `"angular"`（默认）或 `"zipper"`，见上表
     :param `normalize`: 源圆旋转规范，见下
+    :param `validate_reconstruction`: 打开「重建合法性门 + 一次性粗网格回退」，
+        见下节；默认关闭
     :return:
         `hbs`：`disk.face_num` 个复数，Beltrami 系数
         `field`：`disk.vert_num x 2` 实数组，调和延拓场
         `welding`：实际使用的 `ConformalWelding`
         `disk`：实际使用的 `DiskMesh`（规范后会整体旋转，**不是**传入的那个）
         （`method`、降级落点与规范诊断量另见 `get_hbs_result`）
+
+    ## `validate_reconstruction`
+
+    近临界输入（大量面片 `|μ| → 1`）会让重建塌缩成 `circle_num` 个完全相同的
+    `1.0`——无异常、有限、但不是曲线。打开本开关后：
+
+    1. 在 `(density, circle_point_num)` 上求解并试重建；
+    2. 不合法则改用 `circle_point_num // 2`（下限 64）重解一次；
+    3. 两级都不合法抛 `RuntimeError`，**不返回未校验的结果**。
+
+    传入 `disk` 时不做门与回退（显式网格由调用方负责），与库外 1.2.0 角速度
+    路径的语义一致。代价是每次调用多花一次完整重建（LSQC 求解）。
 
     ## `normalize`
 
@@ -92,6 +109,7 @@ def get_hbs(
         disk=disk,
         method=method,
         normalize=normalize,
+        validate_reconstruction=validate_reconstruction,
     )
     return result.mu, result.field, result.welding, result.disk
 
@@ -103,11 +121,16 @@ def get_hbs_result(
     disk: DiskMesh = None,
     method: str = "angular",
     normalize: str = DEFAULT_NORMALIZE,
+    validate_reconstruction: bool = False,
 ) -> HBSResult:
     """`get_hbs` 的完整版本，额外交回引擎名、降级落点与规范诊断量。
 
     `HBSResult.rung` 非 `"raw"` 时表示原始输入失败、用了降级的平滑重采样：
     结果可用但保真明显下降，调用方应告知用户。
+
+    `HBSResult.guard_rung` 非 `None` 表示开了 `validate_reconstruction` 且默认网格
+    的重建不合法、换用了更粗的源圆：值形如 `"fallback:256"`，`disk.circle_num`
+    与之相同。这时结果可用，但重建分辨率上限降到回退网格。
 
     `HBSResult.gauge` 是 `gauges.GaugeChoice`：`kind` 报实际用了哪套规范，
     `confidence_i2` / `confidence_m3` 报两个泛函的可信度，`branch_margin` 报
@@ -120,6 +143,43 @@ def get_hbs_result(
         )
     _validate_boundary(bound)
 
+    result = _solve_hbs(
+        bound, circle_point_num, density, disk, method, normalize
+    )
+    if not validate_reconstruction or disk is not None:
+        return result
+
+    from hbs._guard import MIN_FALLBACK_CIRCLE, reconstruction_is_valid
+
+    if reconstruction_is_valid(result.mu, result.disk):
+        return result
+
+    fallback_circle = max(MIN_FALLBACK_CIRCLE, int(circle_point_num) // 2)
+    if fallback_circle >= int(circle_point_num):
+        raise RuntimeError(
+            f"circle_point_num={circle_point_num} 已到回退下限"
+            f"（{MIN_FALLBACK_CIRCLE}），无法再降级；请改用更粗网格或检查输入"
+        )
+    retry = _solve_hbs(
+        bound, fallback_circle, density, None, method, normalize
+    )
+    if reconstruction_is_valid(retry.mu, retry.disk):
+        return replace(retry, guard_rung=f"fallback:{retry.disk.circle_num}")
+    raise RuntimeError(
+        f"近临界 |μ|→1：重建边界在 {circle_point_num} 与 {fallback_circle} "
+        "两个源圆上都退化为一点，拒绝返回非曲线"
+    )
+
+
+def _solve_hbs(
+    bound: np.ndarray,
+    circle_point_num: int,
+    density: float,
+    disk: DiskMesh | None,
+    method: str,
+    normalize: str,
+) -> HBSResult:
+    """一次完整的 焊接 → FEM 延拓 → μ → 规范，不含合法性门。"""
     prepared = prepare_boundary(np.asarray(bound, float), circle_point_num)
     welding_result = ENGINES[method](prepared, circle_point_num)
     disk, fem = resolve_disk(disk, density, circle_point_num)

@@ -67,6 +67,11 @@ class HBSResult:
     gauge: gauges.GaugeChoice
     """实际施加的规范与诊断量（`kind` / `phase` / 两个可信度 / 分支裕度）。"""
 
+    guard_rung: str | None = None
+    """重建合法性门的落点。`None` 表示未开开关或默认网格已合法；
+    `"fallback:<circle>"` 表示默认网格重建退化、换用了更粗的源圆，
+    此时 `disk.circle_num` 与它报的值一致。"""
+
 
 def prepare_boundary(bound: np.ndarray, resample_to: int) -> np.ndarray:
     """定向 → 几何锚点 → 弧长重采样。

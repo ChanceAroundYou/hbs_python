@@ -6,6 +6,29 @@ All notable changes to this project. Format follows
 
 ## [Unreleased]
 
+## [2.3.2] — 2026-10-28
+
+### Added — optional reconstruction guard with a one-step mesh fallback
+
+- `get_hbs(..., validate_reconstruction=True)` / `get_hbs_result(...)`: solve, then
+  check that `reconstruct_from_hbs` yields a real curve; if it degenerated, redo the
+  solve on `circle_point_num // 2` (floor 64) and check again; if both fail, raise
+  `RuntimeError` instead of returning an unvalidated result. `HBSResult.guard_rung`
+  reports the fallback (`"fallback:<circle>"`).
+- Why it exists: near-critical inputs (`|μ| → 1` on many faces) make
+  `geodesic_welding` collapse every exterior point onto `|z| = 1` — output is
+  `circle_num` copies of `1.0`: no exception, finite, and **not a curve**. Frozen
+  `shape100-v1` data: the fallback fires on 4/100 and rescues 1
+  (`real_chopper-3`-shaped); `concave_quad`, `real_Bone-3`, `real_hammer-3` are
+  sentinels on both meshes.
+- Ported from the research repo's 1.2.0 vendored angular path
+  (`src/hbs/angular.py::_reconstruct_is_valid`, fixed 2026-10-24 so the fallback
+  result is re-checked); the research repo now imports `hbs` through a symlink, so
+  the logic has one home.
+- **Off by default** and skipped when an explicit `disk` is passed: it costs one
+  extra full reconstruction (LSQC solve) and the default behaviour stays
+  "always returns the mesh you asked for".
+
 ### Removed — dead vendored code
 
 - `hbs/_angular/joint.py` (475 lines) is gone. No library path imported it;
@@ -402,6 +425,7 @@ no smooth reparameterization that fixes it.
   `post_deepen` parameter was removed entirely.
 - Nothing else in the public API changed.
 
+[2.3.2]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.1.0...v2.2.0

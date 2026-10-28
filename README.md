@@ -41,6 +41,8 @@ or OpenCV-based boundary extraction.
   FEM harmonic extension, `μ = H_z̄/H_z`, source-circle rotation gauge
 - `_engines.py`: The two forward engines behind one registry
   (`angular`, `zipper`); they never fall back to each other
+- `_guard.py`: Optional reconstruction guard (`validate_reconstruction=True`) —
+  rejects "finite but not a curve" results and retries once on a coarser circle
 - `angular.py`: Angular-velocity forward solver (the default since 2.0.0)
 - `_angular/`: Vendored angular-velocity engine
   (`direct.py`); depends only on NumPy/SciPy
@@ -77,7 +79,7 @@ Top-level `import hbs` exposes the full public API:
 
 See [`CHANGELOG.md`](https://github.com/ChanceAroundYou/hbs_python/blob/main/CHANGELOG.md)
 for the solver comparison, measured benchmarks, and everything that changed in
-2.0.0 / 2.0.1 / 2.0.2 / 2.1.0 / 2.2.0 / 2.3.0 / 2.3.1.
+2.0.0 / 2.0.1 / 2.0.2 / 2.1.0 / 2.2.0 / 2.3.0 / 2.3.1 / 2.3.2.
 
 ## Usage Example
 
@@ -110,6 +112,11 @@ bound = get_boundary(img_path, bound_point_num)
 #   "none"           — raw engine output
 # `get_hbs_result` additionally returns `gauge` (which one ran, both
 # confidences, and the M3+M4 branch margin).
+#
+# `validate_reconstruction=True` (off by default) checks that the result actually
+# reconstructs to a curve; a degenerate reconstruction (near-critical |μ| → 1
+# collapses every exterior point onto |z| = 1) retries once on half the source
+# circle and otherwise raises. It costs one extra reconstruction per call.
 hbs, hbs_mapping, cw, disk = get_hbs(bound, method="angular")
 ```
 

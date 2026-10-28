@@ -1,7 +1,7 @@
 # HBS（Harmonic Beltrami Signature）— hbs_python
 
 数学库：图像 → 边界 → HBS（Beltrami 系数复向量，定义在三角面心）→ LSQC 重建。
-发布为 PyPI 包 `hbs`（当前 2.3.1，GitHub `ChanceAroundYou/hbs_python`）。
+发布为 PyPI 包 `hbs`（当前 2.3.2，GitHub `ChanceAroundYou/hbs_python`）。
 下游消费方：hbs_generation（VAE 在 HBS 空间生成形状，独立仓库）。
 
 ## 模块地图
@@ -11,6 +11,7 @@ hbs/__init__.py            公共命名空间（见下）
 hbs/_engines.py            两套独立引擎 + 注册表（`ENGINES`）；互不替补
 hbs/_pipeline.py           焊接之后的唯一后端：准备/延拓/μ/I₂ + `compare_engines`
 hbs/hbs.py                 get_hbs / get_hbs_result / reconstruct_from_hbs
+hbs/_guard.py              重建合法性门（`validate_reconstruction` 用，默认关闭）
 hbs/angular.py             角速度引擎（边界层对数单层势）→ `angular_welding`
 hbs/_angular/direct.py     角速度求解内核（vendored，只依赖 numpy/scipy）
 hbs/mesh.py                Mesh / DiskMesh / get_rect / get_unit_disk / get_unit_disk_in_rect
