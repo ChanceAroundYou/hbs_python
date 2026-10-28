@@ -61,7 +61,49 @@ class ConformalWelding:
         self.init_y = y
         self.y = y
 
+    @classmethod
+    def from_angular(cls, welding: dict) -> "ConformalWelding":
+        """从角速度引擎的焊接种构造（没有 zipper 的 slit 参数）。
+
+        `welding` 由 `hbs.angular.angular_welding` 给出，字段为：
+
+        - `init_x_angle` / `init_x`：源圆角度与点；
+        - `init_y`：目标圆上的点（`|y| = 1`），随源角严格单调、绕圆一圈；
+        - `parameter` / `boundary`：对应的形状参数与边界点（诊断用）。
+
+        与 zipper 构造的对象**语义一致**（x、y 都在单位圆上，`rotate_x` 同样移动
+        源角），区别是 `params is None`：`x_post_norm` / `y_post_norm` / `uniquify`
+        需要 zipper 的 slit 参数，调用会抛 `NotImplementedError`。
+        """
+        self = cls.__new__(cls)
+        x = np.asarray(welding["init_x"], complex)
+        y = np.asarray(welding["init_y"], complex)
+        if x.shape != y.shape or x.ndim != 1 or x.size < 2:
+            raise ConformalWeldingNumericalError(
+                "angular welding arrays must be 1D, equally sized, and non-degenerate"
+            )
+        if not (np.all(np.isfinite(x)) and np.all(np.isfinite(y))):
+            raise ConformalWeldingNumericalError("angular welding produced non-finite values")
+        self.params = None
+        self.init_x_angle = np.mod(np.asarray(welding["init_x_angle"], float), 2 * np.pi)
+        self.init_x = np.exp(1j * self.init_x_angle)
+        self.x = self.init_x
+        self.init_y = y
+        self.y = y
+        self.parameter = np.asarray(welding["parameter"], float)
+        self.boundary = np.asarray(welding["boundary"], complex)
+        return self
+
+    def _require_zipper_params(self, what: str) -> None:
+        if getattr(self, "params", None) is None:
+            raise NotImplementedError(
+                f"{what} requires the zipper slit parameters, which the angular engine "
+                "does not produce. Use get_conformal_welding(bound, method='zipper') "
+                "if you need this step."
+            )
+
     def uniquify(self):
+        self._require_zipper_params("uniquify()")
         x_angle, idx = np.unique(np.angle(self.init_x), return_index=True)
         x = np.exp(x_angle * 1j)
         y = self.init_y[idx]
@@ -71,8 +113,17 @@ class ConformalWelding:
         self._set_init_y(y)
 
     def linear_interp(self, num: int):
+        """重采样到 `num` 个**均匀源角**，并保持 `x ↔ y` 配对。
+
+        输出约定：`init_x_angle = 2πk/num`，`init_y[k]` 是该源角对应的目标圆点。
+
+        两个不变量必须同时成立，否则下游会把两条焊接的 `y` 当成同一参数化：
+
+        `self.x` 被写到从 0 起的均匀网格上；`init_x_angle` 保留插值前的原始起点，
+        供 `rotate_x` / `x_post_norm` 使用。`y` 的相位以首个点为基准归零——这是
+        重建能落回原尺度与方位的前提，只消除**目标圆**的整体旋转。
+        """
         x_angle_regular = np.arange(0, 2 * np.pi, 2 * np.pi / num)
-        self.x = np.exp(x_angle_regular * 1j)
 
         inter_func = interp1d(
             np.concatenate(
@@ -87,8 +138,13 @@ class ConformalWelding:
             fill_value="extrapolate",  # 周期边界越界时外插（数值鲁棒）
         )
         y = inter_func(x_angle_regular)
-        y_anlge = np.angle(y)
-        self.y = np.exp((y_anlge - y_anlge[0]) * 1j)
+
+        # `y` 的相位必须以首个点为基准归零：这是重建能落回原尺度/方位的前提
+        # （去掉它，椭圆重建面积比从 1.00 变成 2.04）。归零只消除**目标圆**的
+        # 整体旋转，不影响源圆参数化。
+        y_angle = np.angle(y)
+        self.y = np.exp((y_angle - y_angle[0]) * 1j)
+        self.x = np.exp(x_angle_regular * 1j)
 
     def rotate_x(self, r):
         x_angle = np.mod(self.init_x_angle - r, 2 * np.pi)
@@ -102,6 +158,7 @@ class ConformalWelding:
         :param params: 参数
         :return: 归一化后的点，a 和 theta 参数
         """
+        self._require_zipper_params("x_post_norm()")
         zinf = zipper_params([np.inf], self.params)
         a = -1 / np.conj(zinf)
         theta = 0
@@ -115,6 +172,7 @@ class ConformalWelding:
         :param z: 输入点
         :return: 归一化后的点，a 和 theta 参数
         """
+        self._require_zipper_params("y_post_norm()")
         p = np.append(self.y, [0, 1])
         for _ in range(200):
             center = np.mean(p[:-2])
@@ -163,14 +221,61 @@ class ConformalWelding:
         return y_angle
 
 
-def get_conformal_welding(bound: np.ndarray[np.floating]) -> ConformalWelding:
-    assert (
-        bound.ndim == 2
-        and bound.shape[1] == 2
-        and np.issubdtype(bound.dtype, np.floating)
-    ), "bound must be n x 2 real array with float type"
+def get_conformal_welding(
+    bound: np.ndarray[np.floating],
+    method: str = "angular",
+    normalize: str = "auto",
+    resample_to: int = 500,
+) -> ConformalWelding:
+    """共形焊接：边界 → 源圆/目标圆上的对应点。
 
-    bound = to_complex(bound)
+    与 `get_hbs` 走**同一段代码**（`hbs._pipeline` + `hbs._engines`），因此对同一
+    形状、同一 `method`、同一 `normalize` 给出与 `get_hbs` 内部完全一致的 `(x, y)`。
+
+    :param `bound`: `n x 2` 闭合边界点（任意绕向）
+    :param `method`: `"angular"`（默认）或 `"zipper"`，与 `get_hbs` 同义；
+        两个引擎互不替补，任一失败即抛错
+    :param `normalize`: `"auto"`（默认）/`"i2"`/`"m34"`/`"none"`，与 `get_hbs` 同义。
+        规范需要先算一次 μ 才能确定相位（焊接已定，不重解），效果与 `get_hbs`
+        一致：只移源角，不动 `y`
+    :param `resample_to`: 源圆采样点数，同时是弧长重采样的目标点数
+    :return: `ConformalWelding`；`params is None`（没有 zipper 的 slit 参数）
+    :raises RuntimeError: 该引擎在全部输入阶梯上失败
+    """
+    from hbs._engines import ENGINES
+    from hbs._pipeline import NORMALIZATIONS, prepare_boundary, resolve_disk
+    from hbs import gauges
+    from hbs.extension import fem_extend
+    from hbs.qc import get_beltrami_coefficient
+
+    if method not in ENGINES:
+        raise ValueError(f"method must be one of {sorted(ENGINES)}, got {method!r}")
+    if normalize not in NORMALIZATIONS:
+        raise ValueError(f"normalize must be one of {NORMALIZATIONS}, got {normalize!r}")
+
+    prepared = prepare_boundary(np.asarray(bound, float), resample_to)
+    welding = ENGINES[method](prepared, resample_to).welding
+
+    if normalize != "none":
+        disk, fem = resolve_disk(None, 0.01, resample_to)
+        welding.linear_interp(resample_to)
+        field, _ = fem_extend(disk, np.asarray(welding.y, complex), fem=fem)
+        choice = gauges.select_gauge(
+            get_beltrami_coefficient(field, disk), disk, normalize
+        )
+        if choice.phase is not None:
+            welding.rotate_x(choice.phase)
+
+    return welding
+
+
+def zipper_welding_prepared(bound: np.ndarray[np.floating]) -> ConformalWelding:
+    """对**已完成预处理**的边界跑 zipper 焊接（内部入口，不重复预处理）。
+
+    调用方须先用 `hbs._pipeline.prepare_boundary` 规范化；重复预处理会再插值一次
+    弧长网格，逐点偏移虽小但没必要。
+    """
+    bound = to_complex(np.asarray(bound, float))
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)

@@ -111,7 +111,7 @@ def test_default_path_works_with_research_repo_hidden():
         t = np.linspace(0, 2 * np.pi, 500, endpoint=False)
         bound = np.stack([1.2 * np.cos(t), np.sin(t)], 1)
         mu, field, cw, disk = hbs.get_hbs(bound)
-        assert cw is None, "angular 路径不应返回 ConformalWelding"
+        assert cw is not None, "2.2.0：两条路径都带焊接（统一从角速度求）"
         assert mu.shape == (disk.face_num,)
         rec, *_ = hbs.reconstruct_from_hbs(mu, disk)
         assert rec.shape == (disk.circle_num, 2)

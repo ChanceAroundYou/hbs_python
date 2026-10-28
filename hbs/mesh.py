@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections import defaultdict
-
 import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.spatial import Delaunay
@@ -63,26 +61,21 @@ class Mesh:
             return Dx, Dy, Dz, Dc
 
         def f2v():
-            ring = defaultdict(list)
-            for i, face in enumerate(self.face):
-                for vertex in face:
-                    ring[vertex].append(i)
-            ring = [ring[i] for i in range(self.vert_num)]
-
-            avg = np.array([len(r) for r in ring])
-
+            # 向量化：原实现是纯 Python 三重循环（60k 面约 86 ms，占建盘 3/4）。
+            # 每个面的 3 个顶点各连到该面编号，构造 (vert, face) 稀疏矩阵；
+            # 同一 (v, f) 可能因退化面重复出现，故先把 data 归一再按行求和取度。
+            x_pos = np.repeat(np.arange(self.face_num), 3)
+            y_pos = self.face.flatten()
+            M = csr_matrix(
+                (np.ones(len(y_pos)), (y_pos, x_pos)),
+                shape=(self.vert_num, self.face_num),
+            )
+            M.data[:] = 1.0
+            avg = np.asarray(M.sum(axis=1)).ravel()
             A = csr_matrix(
                 (1 / avg, (np.arange(self.vert_num), np.arange(self.vert_num)))
             )
-
-            x_pos = np.concatenate([np.full(len(r), i) for i, r in enumerate(ring)])
-            y_pos = np.concatenate(ring)
-            B = csr_matrix(
-                (np.ones(len(y_pos)), (x_pos, y_pos)),
-                shape=(self.vert_num, self.face_num),
-            )
-            matrix = A @ B
-            return matrix
+            return A @ M
 
         def v2f():
             x_pos = np.repeat(np.arange(self.face_num), 3)

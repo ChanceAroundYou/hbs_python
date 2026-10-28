@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from hbs import get_hbs, reconstruct_from_hbs
-from hbs.hbs import _LAMBDA_MAX_ITERATIONS, _lambda_phase
+from hbs.gauges import _phase_from_arrays as lambda_phase
 
 
 def _ellipse(n=500):
@@ -44,7 +44,7 @@ def test_lambda_phase_uses_area_weighted_confidence_gate():
     centers = np.array([[1.0, 0.0], [1.0, 0.0]])
     areas = np.array([1.0, 1.0])
 
-    assert _lambda_phase(hbs, centers, areas) is None
+    assert lambda_phase(hbs, centers, areas, 1e-4) is None
 
 
 def test_lambda_phase_returns_angle_for_confident_weighted_moment():
@@ -52,8 +52,16 @@ def test_lambda_phase_returns_angle_for_confident_weighted_moment():
     centers = np.array([[1.0, 0.0], [1.0, 0.0]])
     areas = np.array([1.0, 2.0])
 
-    assert np.isclose(_lambda_phase(hbs, centers, areas), np.pi / 2)
+    assert np.isclose(lambda_phase(hbs, centers, areas, 1e-4), np.pi / 2)
 
 
-def test_lambda_iteration_cap_is_small_and_explicit():
-    assert _LAMBDA_MAX_ITERATIONS == 8
+def test_zipper_gauge_is_one_shot_not_iterated():
+    """2.1.0 起 zipper 不再有 8 轮 rotate_x 循环；规范化是一次刚体变换。
+
+    旧循环用 `rotate_x(r)` + `linear_interp` 逼近 arg I₂=0，重采样到固定 x
+    网格导致结果依赖输入起点（roll 残差 0.46–0.87）。这里钉住"不再有循环"
+    这一契约：模块里不应再出现迭代上限常量。
+    """
+    import hbs.hbs as mod
+
+    assert not hasattr(mod, "_LAMBDA_MAX_ITERATIONS")

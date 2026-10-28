@@ -18,5 +18,8 @@ Thumbs.db
 .omc/
 bench/
 .claude/
+# 研究脚本与运行产物只在本地保留：可复现材料归档在 HBS-research 仓库
+experiments/
+runs/
 # GPL 隔离区：只在本地保留，不随 MIT 仓库分发
 unpublished_gpl/

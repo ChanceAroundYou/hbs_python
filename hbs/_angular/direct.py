@@ -174,13 +174,24 @@ def compute_direct_hbs(
                                  np.r_[t, 2 * np.pi], np.r_[alpha0, 2 * np.pi])
         z_sample = np.exp(1j * sample_phase)
 
+    # M1 规范化（论文式 5.11 / Algorithm 6.2）：Σ_k Φ1^{-1}(z_k) = 0。
+    #
+    # 求和必须覆盖**全部 N 个离散点**，不是输入样本的子集。此前用 `z_sample`
+    # （输入点数，通常 500）而 α 定义在 n=1024 网格上，两者不一致：全网格上的
+    # 残差实测 2.6e-3 ~ 2.8e-2，`|a|` 也随之偏大。论文 Algorithm 6.2 明确写的是
+    # "p_i, i = 1,…,N" 且 N 与求解网格一致。
+    #
+    # `z_full` 用 α0（未居中的源角）在全部 N 点上取值；`z_sample` 仍保留给
+    # `alpha` 的起点与 `DirectHBS` 的语义（原始采样口径）。
+    z_full = np.exp(1j * alpha0)
+
     def center_equations(v: NDArray[np.float64]) -> NDArray[np.float64]:
         a = complex(v[0], v[1])
-        mapped = (z_sample - a) / (1 - np.conj(a) * z_sample)
+        mapped = (z_full - a) / (1 - np.conj(a) * z_full)
         mean = mapped.mean()
         return np.array([mean.real, mean.imag])
 
-    result = root(center_equations, np.array([z_sample.mean().real, z_sample.mean().imag]))
+    result = root(center_equations, np.array([z_full.mean().real, z_full.mean().imag]))
     a = complex(*result.x)
     if abs(a) >= 1 or np.linalg.norm(center_equations(result.x)) > 1e-9:
         raise RuntimeError("inner Möbius centering failed")

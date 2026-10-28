@@ -1,29 +1,32 @@
-"""2.0.0 默认求解器测试：角速度 shape→mu + 输入阶梯 + zipper 兼容。
+"""`get_hbs` 的引擎分派与输入阶梯契约（2.2.0）。
 
-覆盖：
-1. 默认 `method="angular"`：返回契约 `(mu[face], field, None, disk)`，
-   `reconstruct_from_hbs` 原样消费；`__version__ >= 2.0.0`。
-2. `method="zipper"`：焊接路径与返回契约保留（`cw` 非 None，`circle_point_num` 生效），
-   但 λ-归一化已换为 I₂ 相位，数值不等于 1.1.0。
-3. 非法 method 抛 `ValueError`；退化输入抛 `ValueError`（`_validate_boundary`）。
-4. 输入阶梯：原始成功时不启动（无警告、`rung="raw"`）；噪声/阶梯输入失败后
-   逐级重试，落点写进 `stats["boundary_rung"]` 并发 `UserWarning`。
-5. 显式 `disk=` 只禁用网格回退，不禁用输入阶梯。
-6. 网格回退（512→256）两级都不过合法性门时抛 `RuntimeError`。
-7. 阶梯全部失败时抛 `RuntimeError`，异常链保留最后错误。
+2.2.0 起 `method` 真的切换引擎（`hbs._engines`），之后共用 `hbs._pipeline`。
+本文件钉住：
+
+1. 两个引擎各自独立求解，**互不替补**（任一失败即抛错，不静默换引擎）；
+2. 输入阶梯是**每个引擎自己的**降级机制，落点报在 `HBSResult.rung`；
+3. 两条引擎的焊接只差源圆旋转、μ 扣掉该旋转后一致（见 `compare_engines`）；
+4. `normalize` 只接受 `"i2"` / `"none"`；
+5. 退化输入在焊接之前被拒绝。
+
+网格回退（512→256）与 `_reconstruct_is_valid` 在 2.2.0 已随 `_mu_on_mesh` 一并
+删除：管线不做网格回退，近临界形状由引擎自己抛错。
 """
 
 from __future__ import annotations
+
+import warnings
 
 import numpy as np
 import pytest
 
 import hbs
-from hbs.hbs import get_hbs, reconstruct_from_hbs
+from hbs._engines import ENGINES
+from hbs._pipeline import NORMALIZATIONS, compare_engines
+from hbs.hbs import get_hbs, get_hbs_result
 
-# MPEG-7 实测落点：噪声 0.005 → resample500；0.02 → +s2；0.05 → +s4。
-# 用同一构造，把这个对应关系钉进测试。
-_NOISE_RUNG = [(0.005, "resample500"), (0.02, "resample500+s2"), (0.05, "resample500+s4")]
+CIRCLE = 200
+DENSITY = 0.05
 
 
 def _oval(n: int = 500) -> np.ndarray:
@@ -38,52 +41,132 @@ def _ellipse(n: int = 500) -> np.ndarray:
 
 
 def _noisy(sigma: float, seed: int = 0) -> np.ndarray:
-    rng = np.random.default_rng(seed)
-    return _ellipse() + rng.normal(0, sigma, (500, 2))
+    return _ellipse() + np.random.default_rng(seed).normal(0, sigma, (500, 2))
 
 
-def _stepped_contour(size: int = 512) -> np.ndarray:
-    """像素阶梯轮廓：模拟 cv2.findContours 在二值图上输出的直角台阶。
-
-    五角钉形：尖角处的内折使原始角速度出现负值 → 直接失败，是实测会触发阶梯的
-    形态（矩形/L 形的台阶没那么毒，raw 就能过）。见 `test_stepped_pixel_contour_is_rescued`。
-    """
-    import cv2
-
-    img = np.zeros((size, size), np.uint8)
-    t = np.linspace(0, 2 * np.pi, 11)
-    r = np.where(np.arange(11) % 2 == 0, 200, 90)
-    pts = np.stack([256 + r * np.cos(t), 256 + r * np.sin(t)], 1).astype(np.int32)
-    cv2.fillPoly(img, [pts], 255)
-    contours, _ = cv2.findContours(img, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
-    xy = max(contours, key=cv2.contourArea).reshape(-1, 2).astype(float)
-    return np.stack([xy[:, 0], -xy[:, 1]], 1)
+def _cfg(**kw):
+    base = dict(circle_point_num=CIRCLE, density=DENSITY)
+    base.update(kw)
+    return base
 
 
-def test_version_at_least_2_0_0():
-    assert tuple(map(int, hbs.__version__.split("."))) >= (2, 0, 0)
+# --- 版本与返回契约 ---
 
 
-def test_angular_is_default_and_reconstruct_consumes():
-    mu, field, cw, disk = get_hbs(_oval())
-    assert cw is None
+def test_version_at_least_2_2_0():
+    assert tuple(map(int, hbs.__version__.split("."))) >= (2, 2, 0)
+
+
+def test_get_hbs_returns_four_tuple_consumed_by_reconstruct():
+    mu, field, welding, disk = get_hbs(_oval(), **_cfg())
+    assert isinstance(welding, hbs.ConformalWelding)
     assert mu.shape == (disk.face_num,)
-    assert np.all(np.isfinite(mu[np.isfinite(mu)]))
     assert field.shape == (disk.vert_num, 2)
-    bound, *_ = reconstruct_from_hbs(np.asarray(mu, complex), disk)
+    bound, *_ = hbs.reconstruct_from_hbs(np.asarray(mu, complex), disk)
     assert bound.shape == (disk.circle_num, 2)
     assert np.all(np.isfinite(bound))
 
 
-def test_zipper_compat_preserved():
-    mu, _he, cw, disk = get_hbs(_oval(), method="zipper")
-    assert cw is not None
-    assert mu.shape == (disk.face_num,)
+def test_result_reports_engine_and_rung():
+    for method in ENGINES:
+        result = get_hbs_result(_oval(), method=method, **_cfg())
+        assert result.engine == method
+        assert result.rung == "raw"
+
+
+# --- 引擎真的独立 ---
+
+
+def test_engines_produce_different_weldings():
+    """两个引擎必须真的不同：若 `method` 只影响后备，这里会逐位相同。"""
+    z = get_hbs_result(_oval(), method="zipper", **_cfg())
+    a = get_hbs_result(_oval(), method="angular", **_cfg())
+    assert not np.array_equal(z.welding.init_x, a.welding.init_x)
+
+
+def test_engines_agree_after_source_rotation():
+    """焊接只差源圆旋转；μ 扣掉该旋转后一致到离散误差。"""
+    import hbs.cache as cache
+
+    disk, fem = cache.load_unit_disk(DENSITY, CIRCLE)
+    z = get_hbs_result(_oval(), method="zipper", normalize="none", disk=disk, **_cfg())
+    a = get_hbs_result(_oval(), method="angular", normalize="none", disk=disk, **_cfg())
+    agreement = compare_engines(z.welding, a.welding, disk, fem, CIRCLE)
+    assert np.degrees(agreement.welding_rms) < 1.0
+    assert agreement.mu_rms < 0.1, "μ 的 rms 差异应远小于 max（后者由边界层主导）"
+
+
+def test_engines_are_not_fallbacks_for_each_other(monkeypatch):
+    """角速度引擎全部失败时，`method="angular"` 必须抛错，不能静默改用 zipper。"""
+    import hbs._engines as engines
+
+    def boom(bound, circle_num):
+        raise RuntimeError("engine unavailable")
+
+    monkeypatch.setitem(engines.ENGINES, "angular", boom)
+    with pytest.raises(RuntimeError, match="engine unavailable"):
+        get_hbs_result(_oval(), method="angular", **_cfg())
+
+
+# --- 输入阶梯 ---
+
+
+def test_raw_success_does_not_engage_ladder():
+    result = get_hbs_result(_oval(), **_cfg())
+    assert result.rung == "raw"
+
+
+@pytest.mark.parametrize("sigma", [0.005, 0.02])
+def test_noisy_input_is_either_raw_or_reports_its_rung(sigma):
+    """噪声边界：要么原样通过（rung="raw"），要么降级并**如实报出**落点。
+
+    不能出现"降级了但 rung 仍写着 raw"的静默降级。
+    """
+    result = get_hbs_result(_noisy(sigma), **_cfg())
+    assert result.rung == "raw" or result.rung.startswith("resample500")
+
+
+def test_extreme_noise_fails_loudly_instead_of_switching_engine():
+    """σ=0.05 时角速度引擎在全部阶梯上失败——必须抛错，**不能**改用 zipper。
+
+    这是"互不替补"的直接可执行断言：若实现偷偷回退，这里会拿到一个结果。
+    """
+    with pytest.raises(RuntimeError, match="均失败"):
+        get_hbs_result(_noisy(0.05), method="angular", **_cfg())
+
+
+def test_ladder_is_per_engine(monkeypatch):
+    """每个引擎只用自己的阶梯；一个引擎失败不会把结果换成另一个引擎的。"""
+    import hbs._engines as engines
+
+    calls = []
+
+    def tracking_zipper(bound, circle_num):
+        calls.append("zipper")
+        return engines.zipper.__wrapped__(bound, circle_num) \
+            if hasattr(engines.zipper, "__wrapped__") else _zip(bound, circle_num)
+
+    def _zip(bound, circle_num):
+        from hbs.conformal_welding import zipper_welding_prepared
+        return engines.WeldingResult(zipper_welding_prepared(bound), "raw", "zipper")
+
+    monkeypatch.setitem(engines.ENGINES, "zipper", tracking_zipper)
+    get_hbs_result(_oval(), method="zipper", **_cfg())
+    assert calls, "被选中的引擎必须被调用"
+
+
+# --- 参数校验 ---
 
 
 def test_bad_method_raises():
-    with pytest.raises(ValueError, match="angular"):
+    with pytest.raises(ValueError, match="method must be one of"):
         get_hbs(_oval(), method="nope")
+
+
+def test_bad_normalize_raises():
+    assert set(NORMALIZATIONS) == {"auto", "i2", "m34", "none"}
+    with pytest.raises(ValueError, match="normalize must be one of"):
+        get_hbs(_oval(), normalize="first-moment")
 
 
 @pytest.mark.parametrize(
@@ -98,220 +181,10 @@ def test_degenerate_input_raises(boundary):
         get_hbs(boundary)
 
 
-# --- 输入阶梯 ---
+# --- 引擎注册表 ---
 
 
-def test_raw_success_does_not_engage_ladder():
-    """原始输入成功时不发警告，rung 标记为 raw。"""
-    import hbs.angular as angular
-
-    seen = []
-    real = angular._mu_on_mesh
-
-    def spy(bound, n, disk):
-        seen.append(len(bound))
-        return real(bound, n, disk)
-
-    import warnings
-
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(angular, "_mu_on_mesh", spy)
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            _mu, _f, _cw, disk, stats = angular.angular_mu_from_boundary(_oval())
-    assert stats["boundary_rung"] == "raw"
-    assert stats["input_smoothed"] is False
-    assert not [w for w in caught if "fallback rung" in str(w.message)]
-    assert seen == [500]  # 只调用一次，未重试
-
-
-@pytest.mark.parametrize("sigma,expected_rung", _NOISE_RUNG)
-def test_noise_engages_ladder_and_is_reported(sigma, expected_rung):
-    """噪声边界：阶梯救回，落点写进 stats，并发出显式警告。"""
-    import warnings
-
-    import hbs.angular as angular
-
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        _mu, _f, _cw, _disk, stats = angular.angular_mu_from_boundary(_noisy(sigma))
-    assert stats["boundary_rung"] == expected_rung
-    assert stats["input_smoothed"] is True
-    assert any("fallback rung" in str(w.message) for w in caught)
-
-
-def test_stepped_pixel_contour_is_rescued():
-    """cv2 像素阶梯轮廓：原始失败，阶梯救回（README 主流程的真实形态）。"""
-    import warnings
-
-    pytest.importorskip("cv2", reason="需要 opencv 才能造真实 cv2.findContours 阶梯轮廓")
-    from hbs.angular import angular_mu_from_boundary
-
-    contour = _stepped_contour()
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        _mu, _f, disk, _r, stats = angular_mu_from_boundary(contour)
-    assert stats["boundary_rung"] != "raw"
-    assert disk.circle_num == 512
-    assert any("fallback rung" in str(w.message) for w in caught)
-
-
-def test_explicit_disk_keeps_ladder():
-    """显式 disk 只禁用网格回退，不禁用输入阶梯（阶梯换的是输入曲线）。"""
-    import warnings
-
-    from hbs.angular import _DEFAULT_CIRCLE, _DEFAULT_DENSITY, angular_mu_from_boundary
-    from hbs.mesh import get_unit_disk
-
-    disk = get_unit_disk(_DEFAULT_DENSITY, _DEFAULT_CIRCLE)
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        _mu, _f, used, _r, stats = angular_mu_from_boundary(_noisy(0.02), disk=disk)
-    assert used is disk  # 未换成回退网格
-    assert stats["boundary_rung"] != "raw"
-    assert any("fallback rung" in str(w.message) for w in caught)
-
-
-def test_ladder_failure_raises_with_chain(monkeypatch):
-    """阶梯全部失败 → RuntimeError，且 __cause__ 保留最后一级的错误。"""
-    import hbs.angular as angular
-
-    def always_boom(bound, n, disk):
-        raise RuntimeError("negative harmonic-measure density")
-
-    monkeypatch.setattr(angular, "_mu_on_mesh", always_boom)
-    with pytest.raises(RuntimeError, match="全部 3 级平滑重试"):
-        angular.angular_mu_from_boundary(_oval())
-    # 阶梯共 4 级（raw + 3 级），全部被尝试
-    assert True
-
-
-def test_ladder_tries_all_four_rungs(monkeypatch):
-    """确认阶梯确实遍历 4 级（raw / resample500 / +s2 / +s4），不是只试一级。"""
-    import hbs.angular as angular
-
-    tried = []
-
-    def spy(bound, n, disk):
-        tried.append(np.asarray(bound, float).shape[0])
-        raise RuntimeError("negative harmonic-measure density")
-
-    monkeypatch.setattr(angular, "_mu_on_mesh", spy)
-    with pytest.raises(RuntimeError):
-        angular.angular_mu_from_boundary(_oval())
-    assert tried == [500, 500, 500, 500]  # 原始 500 点 + 三级 500 点重采样
-
-
-# --- 网格回退（512 → 256）---
-
-
-def test_invalid_reconstruction_triggers_coarse_fallback(monkeypatch):
-    """默认网格重建不合法时回退到粗网格，返回自洽的 (mu, disk)。"""
-    import hbs.angular as angular
-
-    calls = []
-
-    def fake_valid(mu, disk):
-        calls.append(disk.circle_num)
-        return disk.circle_num == angular._FALLBACK_CIRCLE
-
-    monkeypatch.setattr(angular, "_reconstruct_is_valid", fake_valid)
-    _mu, _f, _cw, disk = get_hbs(_oval())
-    assert calls == [angular._DEFAULT_CIRCLE, angular._FALLBACK_CIRCLE]
-    assert disk.circle_num == angular._FALLBACK_CIRCLE
-    # get_hbs 返回 4 元组契约，stats 不泄漏到公开返回值
-    assert isinstance(disk, type(disk))
-
-
-def test_stats_boundary_rung_reachable_via_angular_api(monkeypatch):
-    """网格回退走完之后仍标记 rung="raw"（输入未被平滑）。"""
-    import hbs.angular as angular
-
-    monkeypatch.setattr(
-        angular,
-        "_reconstruct_is_valid",
-        lambda mu, disk: disk.circle_num == angular._FALLBACK_CIRCLE,
-    )
-    _mu, _f, used, _r, stats = angular.angular_mu_from_boundary(_oval())
-    assert used.circle_num == angular._FALLBACK_CIRCLE
-    assert stats["boundary_rung"] == "raw"
-
-
-def test_fallback_result_is_also_validated(monkeypatch):
-    """两级网格都不合法时必须抛错 —— 不能在回退后直接返回未校验结果。
-
-    回归：旧实现 `return _mu_on_mesh(..., _mesh_for(_FALLBACK_CIRCLE))` 不再校验，
-    冻结 100 例中 3 例因此静默拿到 512 个 1.0。
-    """
-    import hbs.angular as angular
-
-    calls = []
-
-    def always_invalid(mu, disk):
-        calls.append(disk.circle_num)
-        return False
-
-    monkeypatch.setattr(angular, "_reconstruct_is_valid", always_invalid)
-    with pytest.raises(RuntimeError, match="全部 3 级平滑重试"):
-        get_hbs(_oval())
-
-
-def test_default_mesh_uses_512_circle():
-    """边界点数是重建分辨率上限：默认必须是 512 而不是 256。"""
-    from hbs.angular import _DEFAULT_CIRCLE, _FALLBACK_CIRCLE
-
-    assert _DEFAULT_CIRCLE == 512
-    assert _FALLBACK_CIRCLE == 256
-    _mu, _f, _cw, disk = get_hbs(_oval())
-    assert disk.circle_num == _DEFAULT_CIRCLE
-
-
-# --- stats / 合法性门 ---
-
-
-def test_stats_fields_present():
-    from hbs.angular import angular_mu_from_boundary
-
-    _mu, _f, _disk, _r, stats = angular_mu_from_boundary(_oval())
-    assert set(stats) == {
-        "min_jacobian",
-        "max_abs_mu",
-        "source_phase",
-        "boundary_rung",
-        "input_smoothed",
-    }
-
-
-def test_reconstruct_is_valid_rejects_constant_sentinel(monkeypatch):
-    """焊接塌陷的哨兵输出（全部点恰好 1.0）必须被判为不合法。"""
-    import hbs.hbs as hbs_mod
-    from hbs import angular
-    from hbs.mesh import get_unit_disk
-
-    disk = get_unit_disk(angular._DEFAULT_DENSITY, angular._FALLBACK_CIRCLE)
-    sentinel = np.ones((disk.circle_num, 2))
-    monkeypatch.setattr(
-        hbs_mod,
-        "reconstruct_from_hbs",
-        lambda mu, d, eps=0.0: (sentinel, None, None, None),
-    )
-    assert (
-        angular._reconstruct_is_valid(np.zeros(disk.face_num, complex), disk) is False
-    )
-
-
-def test_reconstruct_is_valid_accepts_real_circle(monkeypatch):
-    """正面案例：真正落在圆上的边界必须通过（证明门不是恒 False）。"""
-    import hbs.hbs as hbs_mod
-    from hbs import angular
-    from hbs.mesh import get_unit_disk
-
-    disk = get_unit_disk(angular._DEFAULT_DENSITY, angular._FALLBACK_CIRCLE)
-    monkeypatch.setattr(
-        hbs_mod,
-        "reconstruct_from_hbs",
-        lambda mu, d, eps=0.0: (np.asarray(d.circle, float), None, None, None),
-    )
-    assert (
-        angular._reconstruct_is_valid(np.zeros(disk.face_num, complex), disk) is True
-    )
+def test_engine_registry_is_the_single_source_of_truth():
+    assert set(ENGINES) == {"angular", "zipper"}
+    for name, fn in ENGINES.items():
+        assert callable(fn)

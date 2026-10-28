@@ -16,8 +16,11 @@ def _shoelace_area(z):
 
 def _roundtrip_area_ratio(bound, disk, clockwise=True):
     b = bound if clockwise else bound[::-1]
-    hbs, _, _, _ = get_hbs(b, 1000, 0.01, disk)
-    rec, _, _, _ = reconstruct_from_hbs(hbs, disk)
+    # 必须用 `get_hbs` **返回的** disk：2.1.0 起默认 `normalize="i2"` 会把顶点
+    # 整体旋转 e^{-iθ}，μ 与这个旋转后的网格配套。拿输入 disk 去重建是错的
+    # （实测面积比 2.87 vs 正确的 1.0000）。
+    hbs, _, _, used = get_hbs(b, 1000, 0.01, disk)
+    rec, _, _, _ = reconstruct_from_hbs(hbs, used)
     a0 = _shoelace_area(bound)
     a1 = _shoelace_area(rec)
     return a1 / a0 if a0 > 0 else np.nan
@@ -186,13 +189,16 @@ def test_reconstruct_wrong_disk_asserts():
 
 
 def test_get_hbs_auto_disk_roundtrip():
-    # 2.0.0：默认 method="angular" 用固定网格 (density=0.04, circle=512)，
-    # 忽略 circle_point_num/density；返回的 disk 可直接用于重建。
+    # 2.1.0：两条路径共用同一默认网格 (density=0.01, circle=500)，由磁盘缓存提供；
+    # 返回的 disk 可直接用于重建。
+    from hbs._pipeline import DEFAULT_CIRCLE as _DEFAULT_CIRCLE
+
     t = np.linspace(0, 2 * np.pi, 500, endpoint=False)
     ell = np.stack([1.2 * np.cos(t), np.sin(t)], 1)
-    hbs, _, cw, disk = get_hbs(ell, 500, 0.01)
-    assert cw is None  # angular 路径无 ConformalWelding
-    assert disk.circle_num == 512
+    hbs, _, cw, _disk = get_hbs(ell, 500, 0.01)
+    assert cw is not None  # 2.2.0：两条路径都带焊接（统一从角速度求）
+    disk = _disk
+    assert disk.circle_num == _DEFAULT_CIRCLE
     rec, _, _, _ = reconstruct_from_hbs(hbs, disk)
     assert np.all(np.isfinite(rec))
 

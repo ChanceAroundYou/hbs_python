@@ -23,9 +23,16 @@ def test_get_conformal_welding_stable():
     # get_conformal_welding 需要 (n,2) 实边界（内部转复数）
     t = np.linspace(0, 2 * np.pi, 200, endpoint=False)
     b = np.stack([1.2 * np.cos(t), np.sin(t)], 1)[::-1]
+    # 2.1.0 起默认 method="angular"（与 get_hbs 一致），x/y 在单位圆上。
     cw = get_conformal_welding(b)
-    assert cw.x.shape[0] == 200
+    assert cw.x.shape[0] == 500
     assert np.all(np.abs(cw.x) <= 1 + 1e-9)
+    # zipper 路径与 get_hbs 共用同一份预处理，默认重采样到 500 点
+    cwz = get_conformal_welding(b, method="zipper")
+    assert cwz.x.shape[0] == 500
+    assert np.all(np.abs(cwz.x) <= 1 + 1e-9)
+    # 要保留原点数必须显式指定
+    assert get_conformal_welding(b, method="zipper", resample_to=200).x.shape[0] == 200
 
 
 def test_geodesic_welding_shape_and_return():

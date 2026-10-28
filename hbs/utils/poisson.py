@@ -1,3 +1,12 @@
+"""稠密 Poisson 核求积：调和延拓的**旧实现**，仅供历史对照实验。
+
+2.1.0 起 `get_hbs` 统一走 `hbs.extension.fem_extend`（P1 稀疏求解）。两者都是
+调和延拓，但耗时差 54–63×（密网格 60796 面：473 ms vs 7.6 ms），延拓值差
+`1.7e-4 ~ 6.3e-4`，μ 差 `2.0e-2 ~ 4.9e-2`（μ 是导数之比，误差在导数上放大）。
+
+保留它只为让 `experiments/` 里的历史对照脚本可复现；**不要在库代码里使用**。
+"""
+
 from __future__ import annotations
 
 import numpy as np
