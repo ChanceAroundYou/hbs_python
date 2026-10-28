@@ -13,7 +13,6 @@ hbs/_pipeline.py           焊接之后的唯一后端：准备/延拓/μ/I₂ +
 hbs/hbs.py                 get_hbs / get_hbs_result / reconstruct_from_hbs
 hbs/angular.py             角速度引擎（边界层对数单层势）→ `angular_welding`
 hbs/_angular/direct.py     角速度求解内核（vendored，只依赖 numpy/scipy）
-hbs/_angular/joint.py      联合全场上游实现（vendored；库代码已不用，见 CHANGELOG）
 hbs/mesh.py                Mesh / DiskMesh / get_rect / get_unit_disk / get_unit_disk_in_rect
 hbs/qc/beltrami.py         get_beltrami_coefficient / mu_chop（Beltrami 系数与截断）
 hbs/qc/lsqc.py             lsqc_solver / unsigned_area_matrix / div_PtP_grad

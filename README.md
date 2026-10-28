@@ -43,7 +43,7 @@ or OpenCV-based boundary extraction.
   (`angular`, `zipper`); they never fall back to each other
 - `angular.py`: Angular-velocity forward solver (the default since 2.0.0)
 - `_angular/`: Vendored angular-velocity engine
-  (`direct.py`, `joint.py`); depends only on NumPy/SciPy
+  (`direct.py`); depends only on NumPy/SciPy
 - `conformal_welding.py`: Conformal welding algorithm implementation
 - `extension.py`: P1 finite-element harmonic extension (shared by both engines)
 - `cache.py`: On-disk cache for the disk mesh and its FEM operator

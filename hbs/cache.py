@@ -77,7 +77,7 @@ def _mesh_digest(vert: np.ndarray, face: np.ndarray) -> str:
 
 
 def _fem_operator(disk):
-    """弱拉普拉斯块 `(A, B)`，与 `_angular.joint` 用的是同一份定义。
+    """弱拉普拉斯块 `(A, B)`。
 
     `A`` = 内部节点 × 内部节点，`B` = 内部节点 × 边界节点。做成这里的一份是为了
     缓存层不依赖 `_angular`（zipper 也要用同一个 FEM 延拓）。

@@ -6,7 +6,7 @@
 后默认路径直接 `ModuleNotFoundError`。本测试锁住三条：
 
 1. 包内**不许**出现指向研究仓库顶层模块的 import；
-2. 引擎确实随包 vendored（`hbs._angular.direct` / `hbs._angular.joint`）；
+2. 引擎确实随包 vendored（`hbs._angular.direct`）；
 3. 在子进程里用 `sys.path` 屏蔽研究仓库后，默认路径仍能跑通。
 """
 
@@ -44,7 +44,7 @@ def test_no_imports_from_research_repo():
     assert not offenders, "包内引用了研究仓库顶层模块：\n" + "\n".join(offenders)
 
 
-@pytest.mark.parametrize("mod", ["hbs._angular.direct", "hbs._angular.joint"])
+@pytest.mark.parametrize("mod", ["hbs._angular.direct"])
 def test_engine_is_vendored(mod):
     import importlib
 

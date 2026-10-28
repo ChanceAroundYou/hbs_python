@@ -4,6 +4,43 @@ All notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Removed — dead vendored code
+
+- `hbs/_angular/joint.py` (475 lines) is gone. No library path imported it;
+  `import hbs` never loaded it (`hbs._angular.direct` is the engine kernel).
+  Its FEM operator was a duplicate of `hbs.cache._fem_operator` — the two
+  matrices were checked elementwise equal (`max|ΔA| = max|ΔB| = 0.0`) and the
+  solves matched bit for bit — so it was neither a second implementation nor a
+  cross-check. It remains byte-identical upstream at
+  `HBS-research/src/joint_hbs_optimizer.py`, and git history keeps the copy,
+  so the paper correspondence is preserved outside the distributed wheel.
+  `tests/test_packaging_selfcontained.py` now only pins `direct`;
+  `experiments/dense_grid_compare.py` imports the upstream module.
+
+### Notes — `AUTO_I2_CONFIDENCE` is unchanged
+
+- `1e-2` is **pre-set, not measured-optimal**; the comment pointing at
+  `runs/规范切换_2026-10-28/` was stale (no such directory). The 2026-10-28
+  equivariance scan (`experiments/auto_gate_scan.py`) is the first real data:
+  on the 8 real shapes every `conf_i2` is 2.8–13.6%, so `1e-2` never fires
+  there. Raising it to `0.1` would switch 5 of the 8 (those at 2.8–9.1%) to
+  M3+M4; the 3 at 11–13.6% keep I₂ and its 0.4–0.5% error. It lowers the
+  aggregate mean (5.61% → 2.56%) but leaves the 64.8% worst case untouched.
+- `conf_i2` does not predict which gauge is more consistent: on real shapes
+  I₂'s source-rotation equivariance error is **0.36–2.74% of `peak|μ|`**
+  (mean 0.95%), M3+M4 is **0.0002–0.001%**. After reconstruction and
+  similarity alignment the *shape* difference is 0.1–1.3% of `R_eff`
+  (measured on `bent_oval_035` and `asymmetric_oval`), so the 0.5–2% is
+  mainly a signature-reproducibility nuisance, not a shape-fidelity loss.
+- The real risk is the failure mode, not the magnitude: any hard gate jumps
+  across its threshold (`interp_w0.65` 58.7%), and M3+M4's branch flip is
+  catastrophic at low `branch_margin` (64.8% / 180°). A margin-aware selector
+  (mean 1.90% vs current 5.61%) is a design change for a separate evaluation —
+  it rotates every real shape's code by 10.8–158.6° and would break the
+  `hbs_generation` code distribution.
+
 ## [2.3.0] — 2026-10-28
 
 `normalize` now offers two source-circle rotation gauges, not one. The default
