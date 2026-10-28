@@ -9,14 +9,36 @@
 - 新增 `ConformalWeldingNumericalError`，收敛 zipper 与归一化的数值失败，不再泄露 `argmin(empty)` 等内部错误。
 - **仅在该数值失败时**对已重采样闭曲线做 `gaussian_filter1d(σ=2.0, mode="wrap")` 平滑重试一次；健康/尖角输入永不预先平滑（避免钝化真实角）。
 
-### A2 — λ 归一化（`_lambda_phase`）
+### A2 — I₂ 相位规范（2.1.0 起一次性施加，无迭代）
 - 面积加权离散 `I₂ = Σ_face μ_f·|A_f|/z_f`（原实现漏乘面积，且 `isnan + norm==0` 因运算符优先级从未剔除 NaN 面片）。
 - 保守近零相位门：`|I₂|/Σ|term| < 1e-4` 视为无可靠归一化方向，直接返回 GHBS 代表（不旋转）。
-- 迭代上限 `30 → _LAMBDA_MAX_ITERATIONS = 8`（实验收敛：椭圆 3 次、花生 5 次）。
+- **2.1.0 变更**：曾有 `_LAMBDA_MAX_ITERATIONS = 8` 的迭代（`rotate_x(r)` → `linear_interp`
+  → 重算场，逼近 arg I₂ = 0）。`rotate_x(r)` 转的是源圆参数化，而随后的 `linear_interp`
+  总是重采样到从角 0 起的固定 x 网格 —— r 不是步长整数倍时它不是刚体旋转，停止门留下的
+  残余随输入起点变化（seam 处 dμ/dr 增益实测 ~125×）。该循环已删除，改为一次性共轭旋转
+  `μ ← e^{-2iθ}μ` 且网格顶点同步乘 `e^{-iθ}`（`hbs.gauges.apply_i2`），不重解、不插值。
 - 精确对称轨道（Z3）理论上不存在连续唯一 λ 代表（见 HBSN `lambda_normalization_notes.tex`），不承诺收敛为独特角度，只保证不被离散残差驱动伪旋转。
 
+### A3 — 论文 M3+M4 规范与 `auto` 切换（2.3.0）
+
+- 新增 `hbs.gauges.select_gauge(mu, disk, kind)`，`kind ∈ {"auto","i2","m34","none"}`。
+  `"m34"` 是论文 (5.8)+(5.9) 的**闭式两分支**：`τ₀ = arg ∫μ dA`、`τ₁ = arg ∫μ/z dA`、
+  `s = (τ₁ − τ₀/2) mod 2π`，`s ∈ [0,π)` 取 `T = τ₀/2`，否则 `T = τ₀/2 + π`。
+- `"auto"`（默认）在 `|I₂|/Σ|term| ≥ AUTO_I2_CONFIDENCE = 1e-2` 时用 I₂，否则退到
+  M3+M4；两者都不可信时**不旋转**，报 `GaugeChoice.kind == "none"`。
+- 旋转作用律实测：`I₂` 权重 1（`→ e^{-iT}`）、`M₃` 权重 2（`→ e^{-2iT}`）。权重差正是
+  M3+M4 需要两个泛函的根据：M₃ 的权重 2 只能定出 `T mod π`，I₂ 的权重 1 挑分支。
+- 分支翻转（`T → T+π`）在重建意义上无害：`e^{-2i(T+π)} = e^{-2iT}`，`μ` 逐位不变、重建
+  fid ~1e-14；但 `disk` 顶点会转半圈、`gauge.phase` 会跳 π，按相位或按顶点做跨形状比较的
+  下游会看到不连续。这是 `auto` 让 I₂ 优先的理由。
+- `HBSResult.gauge` 交回 `GaugeChoice`（`kind` / `phase` / `confidence_i2` /
+  `confidence_m3` / `branch` / `branch_margin`）。
+- **`AUTO_I2_CONFIDENCE` 未经扫描优化**：实测的六个旋转不对称形状 I₂ 可信度均在
+  2.7%–5.7%，全部高于门限，因此该批样本上 `auto` ≡ `i2`；兜底分支只在近对称形状
+  （如三齿 0.04%）上触发过。
+
 ### 验证
-- 全套 `58 passed + 1 xfail`（既有 Z3 三角形已知局限）；`import hbs` 不加载 matplotlib；下游 4 API 冒烟 OK。
+- 全套 `143 passed + 2 skipped + 1 xfail`（2.3.1 口径；跳过项为缺 cv2，xfail 为既有 Z3 三角形已知局限）；`import hbs` 不加载 matplotlib；下游 4 API 冒烟 OK。
 - 整段独立 review：Spec ✅ / Quality ✅(COMMENT) / 0 个 HIGH+CRITICAL / APPROVE。
 
 ## 2. 凹角/星形重建 — 定性与立项
@@ -37,7 +59,8 @@
 **验收指标**：用**旋转对齐**保真度（纯 cyclic 对齐不够，λ 输出合法旋转）。star5 目标 <0.15（现纯 hbs ≈0.1769）。
 
 ## 3. 相关文件
-- `hbs/hbs.py`：`get_hbs` / `_lambda_phase` / `reconstruct_from_hbs` / `_validate_boundary`
+- `hbs/hbs.py`：`get_hbs` / `_prepare_boundary` / `_canonical_start_index` / `reconstruct_from_hbs` / `_validate_boundary`
+- `hbs/gauges.py`：`i2_phase` / `apply_i2` / `rotate_disk`（两条路径共用的相位规范）
 - `hbs/conformal_welding.py`：`ConformalWeldingNumericalError` / `get_conformal_welding`
 - `tests/test_hbs_robustness.py`
 - 理论：`/home/nnb/projects/HBSN/latex/internal/lambda_normalization_notes.tex`、`hbs_normalization_theory.tex`；论文 `refs/Lin_Lui_2022_HarmonicBeltramiSignature.pdf` §6.5（论文自承 recessed border 会丢，建议加大 N；本库证实纯 hbs 加大 N 无效，因信息已丢）。
