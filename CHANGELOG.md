@@ -4,7 +4,66 @@ All notable changes to this project. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [SemVer](https://semver.org/).
 
+**Release status.** Published releases are listed on
+[PyPI](https://pypi.org/project/hbs/#history); the `[Unreleased]` section and any
+version newer than PyPI's latest describe work that is on `main` only.
+
 ## [Unreleased]
+
+### Added — opt-in branch-free source-circle gauge `normalize="c0"`
+
+- `normalize="c0"` selects the source-circle rotation by the weight-1 functional
+  `C₀ = M₁·conj(M₃) = (∫zμ dA)·conj(∫μ dA)`. Weight 1 means `e^{-iT}C₀ = |C₀|` has a
+  **single** solution, so `c0` has no 180° branch decision at all — unlike `m34`,
+  whose `T mod π` needs the `arg I₂` tie-break.
+- It uses the two discretely cleanest moments (`∫μ dA` sees only the m=0 error
+  component, `∫zμ dA` the m=−1 one), so its equivariance residual is
+  1.3e-4–8.6e-4° on the eight real shapes — the best of the
+  `C_k = M_{k+1}·conj(M_k)` family.
+- Failure is self-announcing: `C₀` vanishes exactly where the phase is not
+  identifiable, and `GaugeChoice.confidence_c0 = |C₀|/(S₁S₃)` collapses there.
+  Below `I2_CONFIDENCE` the choice reports `kind="none"`, `phase=None`.
+- Structurally, **every** weight-1 gauge must return undetermined on rotationally
+  symmetric shapes (`n ≥ 2`: `F = e^{-2πi/n}F ⇒ F = 0`). `c0` therefore reports
+  `none` on centrally symmetric inputs where `m34` can still give `T mod π`.
+- `GaugeChoice` gained trailing defaulted fields `c0` and `confidence_c0`;
+  `as_dict()` includes `"c0"` and `"confidence_c0"`.
+- The default is unchanged (`normalize="auto"`), `AUTO_I2_CONFIDENCE` is unchanged,
+  and `auto`/`i2`/`m34`/`none` produce **bit-for-bit** the same output: `c0` uses a
+  separate summation path (`_c0_moments`), pinned by
+  `tests/test_gauges.py::test_existing_kinds_are_bitwise_unchanged`.
+
+### Changed — documentation and packaging
+
+- `README.md` is rewritten around current behaviour: PyPI project page / release
+  history / files links and version badges up top, a quickstart, the two knobs
+  (`method`, `normalize`) and the opt-in `validate_reconstruction` as tables, the
+  public API with signatures, the 60 796 / 62 512 face-count convention, a
+  "facts that bite" section (the `1/rx²` scale law, seam rotation is not a gauge,
+  start-point invariance), and a measured block for `img/example.png` on 2.3.2.
+- The README's old claim that I₂ is "~1500× more sensitive to mesh discretization
+  than M₃" is replaced by the number 2.3.0 actually measured: the two gauges
+  converge at O(h²) with a constant **48–56×** error ratio, so refinement does not
+  close the gap.
+- `example.ipynb` is rebuilt and re-executed end to end with a real kernel on
+  2.3.2 (15 cells, outputs embedded): boundary → forward solve with
+  engine/rung/gauge diagnostics → welding, `|μ|` and extension plots →
+  reconstruction scored by `fidelity_sim` → `compare_engines` cross-check → the four
+  `normalize` settings side by side plus `validate_reconstruction=True`.
+- `CLAUDE.md` is no longer tracked: development notes (module map, numerical
+  pitfalls, workflow) stay local and out of the public repository. It was never in
+  the wheel, and the published 2.0.2 sdist never contained it either; `git log`
+  still holds the earlier copies.
+- Section order is fixed: 2.3.1 sat **below** 2.3.0, which broke the
+  newest-first rule and made the 2.3.0 → 2.3.1 compare link read backwards.
+
+### Notes — what is actually on PyPI
+
+Checked against `https://pypi.org/pypi/hbs/json` on 2026-10-29: the published series is
+`… 1.1.0, 2.0.0, 2.0.1, 2.0.2, 2.3.1, 2.3.2` — **2.1.0, 2.2.0 and 2.3.0 were cut in git
+but never uploaded**; their behaviour changes reached PyPI users inside 2.3.1. So
+`pip install hbs` gives 2.3.2, and the reconstruction guard is installable rather than
+`main`-only.
 
 ## [2.3.2] — 2026-10-28
 
@@ -63,6 +122,35 @@ All notable changes to this project. Format follows
   (mean 1.90% vs current 5.61%) is a design change for a separate evaluation —
   it rotates every real shape's code by 10.8–158.6° and would break the
   `hbs_generation` code distribution.
+
+## [2.3.1] — 2026-10-28
+
+### Added — forward-invariance contract tests
+
+`tests/test_forward_invariance.py` pins what the two engines actually guarantee:
+
+- **Rigid transforms.** Rotation, translation, scaling and a composite leave both
+  the welding and `μ` alone: welding rms `6.9e-13–1.5e-12°` (angular) and
+  `3.0e-11–5.7e-11°` (zipper); `μ` rms `1.3e-11–3.0e-11%` and
+  `8.4e-10–1.2e-9%` of peak. Measured on four asymmetric shapes with six
+  transforms. The two engines differ only by floating-point path: angular works
+  in the angle domain and sits at `eps`; zipper runs the Möbius/square-root
+  chain and amplifies to `~1e-9%`.
+- **Start point.** Cyclic shifts by 1 / 37 / 211 points give **bitwise
+  identical** `μ` on both engines, because `prepare_boundary`'s geometric anchor
+  depends only on the point set.
+- **Sampling density is a convergence quantity, not an invariant.** Refining the
+  same analytic curve from 200 to 3000 points drives the difference to the
+  finest tier down monotonically.
+
+**Deliberately not in the suite**: per-shape convergence *rates*. Those depend on
+`circle_point_num` / `density`, so pinning them in library tests turns a config
+change into a false positive. One such observation — zipper on a pear-shaped
+boundary stalling at 0.24% between n=500 and n=1200 at `CIRCLE=500` — is recorded
+in `HBS-research/runs/前向不变性校验_2026-10-28/报告.md` §3 instead. It was
+verified to be a boundary-layer difference in the welding rather than a gauge
+artifact: a pure phase difference would force `|Δμ|/|μ| ≡ 2|sin δ| = 0.0428`,
+and the measured median is `4.7e-4`.
 
 ## [2.3.0] — 2026-10-28
 
@@ -144,35 +232,6 @@ close the gap either. Nor is it anchor weakness: the spread scales as
   shapes measured sit at 2.7–5.7%, so `"auto"` ≡ `"i2"` on them; the fallback
   only engages on near-symmetric shapes.
 - `i2_phase`, `apply_i2`, and `_phase_from_arrays` keep their 2.2.0 signatures.
-
-## [2.3.1] — 2026-10-28
-
-### Added — forward-invariance contract tests
-
-`tests/test_forward_invariance.py` pins what the two engines actually guarantee:
-
-- **Rigid transforms.** Rotation, translation, scaling and a composite leave both
-  the welding and `μ` alone: welding rms `6.9e-13–1.5e-12°` (angular) and
-  `3.0e-11–5.7e-11°` (zipper); `μ` rms `1.3e-11–3.0e-11%` and
-  `8.4e-10–1.2e-9%` of peak. Measured on four asymmetric shapes with six
-  transforms. The two engines differ only by floating-point path: angular works
-  in the angle domain and sits at `eps`; zipper runs the Möbius/square-root
-  chain and amplifies to `~1e-9%`.
-- **Start point.** Cyclic shifts by 1 / 37 / 211 points give **bitwise
-  identical** `μ` on both engines, because `prepare_boundary`'s geometric anchor
-  depends only on the point set.
-- **Sampling density is a convergence quantity, not an invariant.** Refining the
-  same analytic curve from 200 to 3000 points drives the difference to the
-  finest tier down monotonically.
-
-**Deliberately not in the suite**: per-shape convergence *rates*. Those depend on
-`circle_point_num` / `density`, so pinning them in library tests turns a config
-change into a false positive. One such observation — zipper on a pear-shaped
-boundary stalling at 0.24% between n=500 and n=1200 at `CIRCLE=500` — is recorded
-in `HBS-research/runs/前向不变性校验_2026-10-28/报告.md` §3 instead. It was
-verified to be a boundary-layer difference in the welding rather than a gauge
-artifact: a pure phase difference would force `|Δμ|/|μ| ≡ 2|sin δ| = 0.0428`,
-and the measured median is `4.7e-4`.
 
 ## [2.2.0] — 2026-10-28
 
