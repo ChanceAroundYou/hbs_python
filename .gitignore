@@ -23,3 +23,5 @@ experiments/
 runs/
 # GPL 隔离区：只在本地保留，不随 MIT 仓库分发
 unpublished_gpl/
+# 开发说明（模块地图/数值陷阱/开发流程）只服务于本地协作，不进公开仓库
+CLAUDE.md
