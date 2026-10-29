@@ -224,7 +224,7 @@ class ConformalWelding:
 def get_conformal_welding(
     bound: np.ndarray[np.floating],
     method: str = "angular",
-    normalize: str = "auto",
+    normalize: str = "default",
     resample_to: int = 500,
 ) -> ConformalWelding:
     """共形焊接：边界 → 源圆/目标圆上的对应点。
@@ -235,7 +235,7 @@ def get_conformal_welding(
     :param `bound`: `n x 2` 闭合边界点（任意绕向）
     :param `method`: `"angular"`（默认）或 `"zipper"`，与 `get_hbs` 同义；
         两个引擎互不替补，任一失败即抛错
-    :param `normalize`: `"auto"`（默认）/`"i2"`/`"m34"`/`"none"`，与 `get_hbs` 同义。
+    :param `normalize`: `"default"`（默认）/`"i2"`/`"m34"`/`"c0"`/`"none"`，与 `get_hbs` 同义。
         规范需要先算一次 μ 才能确定相位（焊接已定，不重解），效果与 `get_hbs`
         一致：只移源角，不动 `y`
     :param `resample_to`: 源圆采样点数，同时是弧长重采样的目标点数

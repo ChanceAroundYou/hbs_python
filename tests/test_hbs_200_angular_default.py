@@ -166,7 +166,7 @@ def test_bad_method_raises():
 def test_bad_normalize_raises():
     # `"c0"`（2.3.2 新增的无分支锚）是唯一一次扩展：新增 kind 必须是显式决定，
     # 不能靠顺手改这个集合放过参数校验的回归。
-    assert set(NORMALIZATIONS) == {"default", "auto", "i2", "m34", "c0", "none"}
+    assert set(NORMALIZATIONS) == {"default", "i2", "m34", "c0", "none"}
     with pytest.raises(ValueError, match="normalize must be one of"):
         get_hbs(_oval(), normalize="first-moment")
 

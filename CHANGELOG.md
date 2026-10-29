@@ -10,7 +10,7 @@ version newer than PyPI's latest describe work that is on `main` only.
 
 ## [Unreleased]
 
-### Added — opt-in branch-free source-circle gauge `normalize="c0"`
+### Added — branch-free source-circle gauge `normalize="c0"` (now the default)
 
 - `normalize="c0"` selects the source-circle rotation by the weight-1 functional
   `C₀ = M₁·conj(M₃) = (∫zμ dA)·conj(∫μ dA)`. Weight 1 means `e^{-iT}C₀ = |C₀|` has a
@@ -28,10 +28,14 @@ version newer than PyPI's latest describe work that is on `main` only.
   `none` on centrally symmetric inputs where `m34` can still give `T mod π`.
 - `GaugeChoice` gained trailing defaulted fields `c0` and `confidence_c0`;
   `as_dict()` includes `"c0"` and `"confidence_c0"`.
-- The default is unchanged (`normalize="auto"`), `AUTO_I2_CONFIDENCE` is unchanged,
-  and `auto`/`i2`/`m34`/`none` produce **bit-for-bit** the same output: `c0` uses a
-  separate summation path (`_c0_moments`), pinned by
+- **The default is now `normalize="default"`, which is `c0`.** The old automatic
+  `"auto"` strategy (I₂ when confident, M3+M4 otherwise) is retired: `"auto"` is no
+  longer a valid value. `"i2"` and `"m34"` remain selectable and produce
+  **bit-for-bit** the same output as before; `c0`/`default` use a separate summation
+  path (`_c0_moments`), pinned by
   `tests/test_gauges.py::test_existing_kinds_are_bitwise_unchanged`.
+- `AUTO_I2_CONFIDENCE` is kept only for import compatibility; no `normalize` value
+  uses it any more.
 
 ### Changed — documentation and packaging
 

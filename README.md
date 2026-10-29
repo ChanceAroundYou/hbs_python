@@ -54,7 +54,7 @@ from hbs import get_hbs, reconstruct_from_hbs
 from hbs.utils.boundary import get_boundary   # needs hbs[boundary]
 
 bound = get_boundary("img/example.png", 250)          # n x 2, either winding order
-mu, field, welding, disk = get_hbs(bound)             # method="angular", normalize="auto"
+mu, field, welding, disk = get_hbs(bound)             # method="angular", normalize="default"
 
 rec_bound, in_points, out_points, mapping = reconstruct_from_hbs(mu, disk)
 ```
@@ -65,7 +65,7 @@ so it hands back a *new* `DiskMesh`, and a face-count mismatch makes LSQC assert
 ## The two knobs
 
 `get_hbs(bound, circle_point_num=500, density=0.01, disk=None, method="angular",
-normalize="auto", validate_reconstruction=False)`
+normalize="default", validate_reconstruction=False)`
 
 ### `method` — which forward engine solves the welding
 
@@ -94,10 +94,10 @@ There is no second copy of that logic.
 
 | value | gauge | note |
 |---|---|---|
-| `"auto"` (default) | I₂ when `\|I₂\|/Σ\|term\| ≥ 1e-2`, else the paper's M3+M4 | the switch is deliberately **discontinuous**; the diagnostics land in `HBSResult.gauge` |
+| `"default"` (default) | branch-free anchor `C₀ = M₁·conj(M₃) = (∫zμ dA)·conj(∫μ dA)` | weight 1, so `T = arg C₀` has a **single** solution — no 180° branch at all. Returns `kind="none"` / `phase=None` exactly where `C₀` vanishes; every weight-1 gauge must do so on rotationally symmetric shapes |
 | `"i2"` | single anchor `I₂ = ∫ μ/z dA` | continuous, no branch; the direction is untrustworthy on near-symmetric shapes and is ~50× more sensitive to mesh discretization than `M₃` |
 | `"m34"` | paper (5.8)+(5.9), closed form | `M₃ = ∫ μ dA` fixes `T mod π`, `I₂` picks the branch — one evaluation, no iteration |
-| `"c0"` (opt-in, unreleased) | branch-free anchor `C₀ = M₁·conj(M₃) = (∫zμ dA)·conj(∫μ dA)` | weight 1, so `T = arg C₀` has a **single** solution — no 180° branch at all. Returns `kind="none"` / `phase=None` exactly where `C₀` vanishes; every weight-1 gauge must do so on rotationally symmetric shapes |
+| `"c0"` | same branch-free anchor as `"default"` | explicit spelling of `"default"` |
 | `"none"` | nothing | raw engine output |
 
 `GaugeChoice` carries `kind`, `phase`, `i2`, `m3`, `confidence_i2`, `confidence_m3`,
@@ -123,12 +123,12 @@ explicit `disk`.
 
 | call | what it gives you |
 |---|---|
-| `get_hbs(bound, circle_point_num=500, density=0.01, disk=None, method="angular", normalize="auto", validate_reconstruction=False)` | `(mu, field, welding, disk)` |
+| `get_hbs(bound, circle_point_num=500, density=0.01, disk=None, method="angular", normalize="default", validate_reconstruction=False)` | `(mu, field, welding, disk)` |
 | `get_hbs_result(...)` | `HBSResult(mu, field, welding, disk, engine, rung, gauge, guard_rung)` |
 | `reconstruct_from_hbs(mu, disk, eps=0.0)` | `(bound_points, in_points, out_points, mapping)` |
-| `get_conformal_welding(bound, method="angular", normalize="auto", resample_to=500)` | `ConformalWelding` — bitwise identical to the welding `get_hbs` used for the same `method` |
+| `get_conformal_welding(bound, method="angular", normalize="default", resample_to=500)` | `ConformalWelding` — bitwise identical to the welding `get_hbs` used for the same `method` |
 | `compare_engines(first, second, disk, fem, circle_num)` | `EngineAgreement(welding_shift, welding_rms, mu_max, mu_rms)` — aligns the source-circle rotation first |
-| `select_gauge(mu, disk, kind="auto")` | `GaugeChoice` |
+| `select_gauge(mu, disk, kind="default")` | `GaugeChoice` |
 | `compare_welding` / `compare_conformal_welding` / `welding_curve` | welding agreement as a degree-1 circle homeomorphism |
 | `get_beltrami_coefficient`, `lsqc_solver`, `mu_chop` | quasiconformal primitives |
 | `get_unit_disk`, `get_rect`, `get_unit_disk_in_rect`, `Mesh`, `DiskMesh` | meshes |

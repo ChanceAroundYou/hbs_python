@@ -19,9 +19,12 @@
   `μ ← e^{-2iθ}μ` 且网格顶点同步乘 `e^{-iθ}`（`hbs.gauges.apply_i2`），不重解、不插值。
 - 精确对称轨道（Z3）理论上不存在连续唯一 λ 代表（见 HBSN `lambda_normalization_notes.tex`），不承诺收敛为独特角度，只保证不被离散残差驱动伪旋转。
 
-### A3 — 论文 M3+M4 规范与 `auto` 切换（2.3.0）
+### A3 — 论文 M3+M4 规范与 `auto` 切换（2.3.0；**`auto` 已于 2.3.2 退役**）
 
-- 新增 `hbs.gauges.select_gauge(mu, disk, kind)`，`kind ∈ {"auto","i2","m34","none"}`。
+> 现行默认是 `normalize="default"`（= 无分支锚 `c0`）。`"auto"` 不再被接受；
+> `"i2"`/`"m34"` 仍可显式选择。本节保留 2.3.0 的设计记录。
+
+- 新增 `hbs.gauges.select_gauge(mu, disk, kind)`，2.3.0 时 `kind ∈ {"auto","i2","m34","none"}`。
   `"m34"` 是论文 (5.8)+(5.9) 的**闭式两分支**：`τ₀ = arg ∫μ dA`、`τ₁ = arg ∫μ/z dA`、
   `s = (τ₁ − τ₀/2) mod 2π`，`s ∈ [0,π)` 取 `T = τ₀/2`，否则 `T = τ₀/2 + π`。
 - `"auto"`（默认）在 `|I₂|/Σ|term| ≥ AUTO_I2_CONFIDENCE = 1e-2` 时用 I₂，否则退到

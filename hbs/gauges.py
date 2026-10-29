@@ -59,11 +59,11 @@
 ——误差在 `r<0.5` 的一阶矩质量反而比 `r∈[0.5,0.9)` 小 8×。也不是"锚越弱方向越抖"
 （散播 ∝ `conf^−0.23`，不是 `conf^−1`）。
 
-这个差别**不改变** `auto` 默认选 I₂ 的理由：I₂ 单锚无分支、在正常形状上
-（`conf` ≳ 3%）绝对精度已到 1–2°，而 M3+M4 有分支翻转风险（`branch_margin`）。
+这个差别**不改变**“I₂ 是单锚、无分支、连续”的事实：在正常形状上
+（`conf` ≳ 3%）它的绝对精度已到 1–2°，但 M3+M4 有分支翻转风险（`branch_margin`）。
 它只说明 I₂ 的精度余量比 M₃ 小一个量级。
 
-## 无分支规范 C₀（未发布新增，`kind="c0"`，opt-in）
+## 无分支规范 C₀（`kind="c0"`，默认 `"default"`）
 
 前两套都要么有分支（m34），要么精度差一个量级（I₂）。第三套是无分支的：
 
@@ -95,9 +95,10 @@
 旋转只会引入随机相位，且相邻形状之间不连续。这是本项目明确定过的取舍：**近零锚
 报告未定，不把数值非零当作稳定**（`研究/C1与I2旋转锚的互补条件.md`）。
 
-`auto` 策略就是为此设计的：I₂ 可信度够高时用 I₂（单锚、无分支、连续）；否则退到
-M3+M4，它用 M₃ 的 2 倍权重给出一个**独立**的方向信息，不像 I₂ 那样随形状趋近
-旋转对称而整体塌到零。
+`i2` 与 `m34` 是两套可**显式**选择的锚（不再有自动切换的 `"auto"` 策略）：
+I₂ 单锚、无分支、连续；M3+M4 用 M₃ 的 2 倍权重给出一个**独立**的方向信息，
+不像 I₂ 那样随形状趋近旋转对称而整体塌到零。默认的 `"default"`（= `"c0"`）
+则是上述无分支锚。
 
 M3+M4 自身也有病态：`s` 落在 0 或 π 附近时分支选择对扰动敏感（翻分支 = 差 π）。
 `GaugeChoice.branch_margin` 报这个裕度，调用方可以据此判定结果是否可信。
@@ -114,28 +115,12 @@ from hbs.utils.cast import to_complex, to_real
 #: 泛函方向的硬可信度门：低于此值连方向都不报，返回 `None`。
 I2_CONFIDENCE = 1e-4
 
-#: `auto` 策略的切换门：I₂ 可信度低于此值时改用 M3+M4。
-#:
-#: **这个值是先定的，不是扫描出的最优值。** 2026-10-28 的等变性扫描
-#: （`experiments/auto_gate_scan.py`；产物 `runs/auto切换门扫描_2026-10-28/`
-#: 为未入库的本机文件）给出三条结论：
-#:
-#: 1. 8 个真实形状的 `conf_i2` 在 2.8–13.6%，所以本门（1e-2）在它们上面
-#:    **从不生效**（全部选 I₂）。把门抬到 0.1 会切换其中 5 个（2.8–9.1%），
-#:    但 11–13.6% 的 3 个仍选 I₂——只改门值不能消掉全部真实形状的 0.5–2%。
-#: 2. `conf_i2` 不预测「哪套规范更好」：真实形状上 I₂ 的等变性误差是
-#:    0.36–2.74% of `peak|μ|`，M3+M4 只有 0.0002–0.001%，但门仍全选 I₂。
-#: 3. 任何硬门限都会在跨门限形状上产生跳变（实测 `interp_w0.65` 58.7%）；
-#:    `branch_margin` 才是 M3+M4 的风险指标（低 margin 时 branch flip 可到
-#:    64.8%/180°）。
-#:
-#: 保留 1e-2 是**兼容性决定**：换规范会改变所有真实形状输出的相位
-#: （两规范相位差 10.8–158.6°），触及下游 `hbs_generation` 的码分布。
-#: 详见 `CHANGELOG.md` 的 `[Unreleased]` Notes。
+#: **已弃用**：旧 `"auto"` 策略的切换门，仅为导入兼容保留，任何 `normalize` 取值
+#: 都不再使用它。历史扫描结论（2026-10-28）见 `CHANGELOG.md` 的旧条目。
 AUTO_I2_CONFIDENCE = 1e-2
 
 #: 合法的规范名。`"c0"` 为未发布新增的无分支锚，见模块文档「无分支规范 C₀」。
-GAUGES = ("default", "auto", "i2", "m34", "c0", "none")
+GAUGES = ("default", "i2", "m34", "c0", "none")
 
 TWO_PI = 2.0 * np.pi
 
@@ -240,7 +225,7 @@ def _confidence(value: complex, magnitude: float) -> float:
 def _c0_moments(mu: np.ndarray, disk) -> tuple[complex, float]:
     """返回 `(C₀, S₁·S₃)`，其中 `C₀ = M₁·conj(M₃)`。
 
-    这是**独立**的求和路径，不经过 `_moments`：`auto`/`i2`/`m34` 的输出必须
+    这是**独立**的求和路径，不经过 `_moments`：`i2`/`m34` 的输出必须
     逐位不变，所以不给那三个分支增加任何新的浮点运算（`tests/test_gauges.py::
     test_existing_kinds_are_bitwise_unchanged` 钉住这一点）。
 
@@ -327,21 +312,20 @@ def i2_phase(
 def select_gauge(
     mu: np.ndarray,
     disk,
-    kind: str = "auto",
+    kind: str = "default",
     confidence_threshold: float = I2_CONFIDENCE,
-    auto_threshold: float = AUTO_I2_CONFIDENCE,
 ) -> GaugeChoice:
     """选择源圆旋转 `T` 并返回全部诊断量。**这是唯一入口**。
 
-    :param `kind`: `"auto"` / `"i2"` / `"m34"` / `"c0"` / `"none"`
-    :param `confidence_threshold`: 硬门，两个泛函都低于此值就返回 `phase=None`
-    :param `auto_threshold`: `"auto"` 下改用 M3+M4 的 I₂ 可信度门
+    :param `kind`: `"default"` / `"i2"` / `"m34"` / `"c0"` / `"none"`
+    :param `confidence_threshold`: 硬门，所请求的锚低于此值就返回 `phase=None`
 
     `"m34"` 的闭式解见模块文档。分支判据用 `s = (τ₁ − τ₀/2) mod 2π`，落在
     `[0,π)` 取 `T = τ₀/2`，否则取 `T = τ₀/2 + π`。
 
-    `"c0"` 是无分支锚：`T = arg C₀`，`C₀ = M₁·conj(M₃)`。它**没有分支判定**，
-    也没有第二套规范可退；`C₀` 低于硬门时直接报未定。
+    `"c0"` 与 `"default"` 是同一个无分支锚：`T = arg C₀`，
+    `C₀ = M₁·conj(M₃)`。它**没有分支判定**，也没有第二套规范可退；`C₀`
+    低于硬门时直接报未定。
     """
     if kind not in GAUGES:
         raise ValueError(f"kind must be one of {GAUGES}, got {kind!r}")
@@ -379,48 +363,28 @@ def select_gauge(
     margin = float(min(s, abs(s - np.pi), TWO_PI - s))
     branch = "m3" if s < np.pi else "m3+pi"
 
-    def _i2_choice() -> GaugeChoice:
-        return GaugeChoice(
-            "i2", float(np.angle(i2)), i2, m3, conf_i2, conf_m3, None, margin,
-            f"I₂ 可信度 {conf_i2:.3g} ≥ {auto_threshold:g}",
-        )
-
-    def _m34_choice() -> GaugeChoice:
-        phase = _wrapped(tau0 / 2.0 + (0.0 if s < np.pi else np.pi))
-        why = (
-            f"I₂ 可信度 {conf_i2:.3g} < {auto_threshold:g}，退到 M3+M4"
-            if kind == "auto"
-            else "按请求使用 M3+M4"
-        )
-        return GaugeChoice(
-            "m34", phase, i2, m3, conf_i2, conf_m3, branch, margin,
-            f"{why}（分支 {branch}，s={np.degrees(s):.2f}°，裕度 {np.degrees(margin):.2f}°）",
-        )
-
     if kind == "i2":
         if conf_i2 < confidence_threshold:
             return GaugeChoice(
                 "none", None, i2, m3, conf_i2, conf_m3, None, margin,
                 f"I₂ 可信度 {conf_i2:.3g} < 硬门 {confidence_threshold:g}：未定",
             )
-        return _i2_choice()
+        return GaugeChoice(
+            "i2", float(np.angle(i2)), i2, m3, conf_i2, conf_m3, None, margin,
+            f"按请求使用 I₂（可信度 {conf_i2:.3g}）",
+        )
 
-    if kind == "m34":
-        if conf_m3 < confidence_threshold:
-            return GaugeChoice(
-                "none", None, i2, m3, conf_i2, conf_m3, None, margin,
-                f"M₃ 可信度 {conf_m3:.3g} < 硬门 {confidence_threshold:g}：未定",
-            )
-        return _m34_choice()
-
-    # "auto"
-    if conf_i2 >= auto_threshold and conf_i2 >= confidence_threshold:
-        return _i2_choice()
-    if conf_m3 >= confidence_threshold:
-        return _m34_choice()
+    # kind == "m34"
+    if conf_m3 < confidence_threshold:
+        return GaugeChoice(
+            "none", None, i2, m3, conf_i2, conf_m3, None, margin,
+            f"M₃ 可信度 {conf_m3:.3g} < 硬门 {confidence_threshold:g}：未定",
+        )
+    phase = _wrapped(tau0 / 2.0 + (0.0 if s < np.pi else np.pi))
     return GaugeChoice(
-        "none", None, i2, m3, conf_i2, conf_m3, None, margin,
-        f"两个泛函都不可信（I₂ {conf_i2:.3g}、M₃ {conf_m3:.3g} < {confidence_threshold:g}）：未定",
+        "m34", phase, i2, m3, conf_i2, conf_m3, branch, margin,
+        f"按请求使用 M3+M4（分支 {branch}，s={np.degrees(s):.2f}°，"
+        f"裕度 {np.degrees(margin):.2f}°）",
     )
 
 

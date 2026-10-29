@@ -183,32 +183,15 @@ def test_m34_is_closed_form_not_iterative():
     assert abs(np.angle(np.exp(1j * second.phase))) < 1e-10
 
 
-# --- auto 策略 ---
-
-def test_auto_prefers_i2_when_confident():
+def test_default_is_the_branch_free_c0_anchor():
+    """`"default"` 与 `"c0"` 必须是同一个无分支锚。"""
     centers, areas, mu = _generic(seed=3)
-    choice = gauges.select_gauge(mu, _disk(centers, areas), "auto")
-    assert choice.kind == "i2"
-    assert choice.confidence_i2 >= gauges.AUTO_I2_CONFIDENCE
-
-
-def test_auto_falls_back_to_m34_when_i2_vanishes():
-    """完整环上 I₂ 精确抵消但 M₃ 不抵消：必须退到 M3+M4。"""
-    disk = _disk(RING, np.full(8, 0.1))
-    choice = gauges.select_gauge(np.ones(8), disk, "auto")
-    assert choice.kind == "m34"
-    assert choice.confidence_m3 > 0.9
-    assert choice.phase is not None
-
-
-def test_auto_reports_undetermined_when_both_anchors_vanish():
-    """两个泛函都近零时不许猜方向。"""
-    # I₂ 与 M₃ 同时抵消：两个面片、相反系数、相同面心。
-    centers = np.array([0.5 + 0j, 0.5 + 0j])
-    disk = _disk(centers, np.array([1.0, 1.0]))
-    choice = gauges.select_gauge(np.array([1.0, -0.99999]), disk, "auto")
-    assert choice.phase is None and choice.kind == "none"
-    assert "不可信" in choice.reason
+    disk = _disk(centers, areas)
+    default = gauges.select_gauge(mu, disk, "default")
+    c0 = gauges.select_gauge(mu, disk, "c0")
+    assert default.kind == "default" and c0.kind == "c0"
+    assert default.phase == c0.phase
+    assert default.branch is None
 
 
 def test_none_never_rotates():
@@ -304,7 +287,6 @@ def test_c0_choice_reports_its_own_diagnostics():
 _LEGACY_PHASES = {
     "i2": -2.8720584322370755,
     "m34": 2.6423186107800714,
-    "auto": -2.8720584322370755,
 }
 _LEGACY_CONF = (0.06963705426707052, 0.11860337362869355)
 
@@ -322,7 +304,7 @@ def _legacy_fixture():
 
 @pytest.mark.parametrize("kind", sorted(_LEGACY_PHASES))
 def test_existing_kinds_are_bitwise_unchanged(kind):
-    """`auto`/`i2`/`m34` 的相位与可信度必须**逐位**不变（不是近似）。"""
+    """`i2`/`m34` 的相位与可信度必须**逐位**不变（不是近似）。"""
     disk, mu = _legacy_fixture()
     choice = gauges.select_gauge(mu, disk, kind)
     assert choice.phase == _LEGACY_PHASES[kind]
@@ -391,10 +373,8 @@ def test_angular_compat_wrapper_returns_the_gauge_choice(disk):
             bound, disk=disk, normalize=kind
         )
         assert mu.shape == (used.face_num,)
-        assert stats["gauge"].kind == (kind if kind != "auto" else stats["gauge"].kind)
+        assert stats["gauge"].kind == kind
         assert stats["engine"] == "angular"
-        if kind != "auto":
-            assert stats["gauge"].kind == kind
 
 
 def test_pipeline_result_carries_the_same_choice_as_the_public_entry():
@@ -408,6 +388,6 @@ def test_pipeline_result_carries_the_same_choice_as_the_public_entry():
     # 否则 `linear_interp` 与 FEM 的边界块尺寸不匹配（这里要的是快，不是复用）。
     result = get_hbs_result(bound, circle_point_num=120, density=0.05,
                             normalize="none")
-    direct = gauges.select_gauge(result.mu, result.disk, "auto")
+    direct = gauges.select_gauge(result.mu, result.disk, "default")
     assert result.gauge.kind == "none" and result.gauge.phase is None
     assert direct.kind in gauges.GAUGES

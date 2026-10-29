@@ -118,7 +118,7 @@ def angular_mu_from_boundary(
     bound: np.ndarray,
     n: int = 1024,
     disk: "DiskMesh | None" = None,
-    normalize: str = "auto",
+    normalize: str = "default",
 ) -> tuple[np.ndarray, np.ndarray, "DiskMesh", object, dict]:
     """角速度路径的便捷入口：`bound → (mu, field, disk, result, stats)`。
 
@@ -130,7 +130,7 @@ def angular_mu_from_boundary(
 
     :param `n`: 边界层离散点数（传给 `angular_welding`），默认 1024
     :param `disk`: 显式网格；省略时用 `(density=0.01, circle=500)` 的缓存网格
-    :param `normalize`: `"auto"`（默认）/`"i2"`/`"m34"`/`"none"`，与 `get_hbs` 同义
+    :param `normalize`: `"default"`（默认）/`"i2"`/`"m34"`/`"c0"`/`"none"`，与 `get_hbs` 同义
     :raises RuntimeError: 全部输入阶梯失败
     """
     from hbs._pipeline import build_hbs, prepare_boundary, resolve_disk
