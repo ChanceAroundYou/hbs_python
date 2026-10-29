@@ -102,6 +102,26 @@ def test_rigid_transform_invariance(disk, engine, name):
 
 
 @pytest.mark.parametrize("engine", ["angular", "zipper"])
+def test_c0_gauge_is_forward_invariant(disk, engine):
+    """`normalize="c0"`（无分支锚 `C₀ = M₁·conj(M₃)`）也必须在刚体变换下不变。
+
+    `c0` 与前两个规则共享同一条管线，但它走**独立**的矩求和路径（`_c0_moments`），
+    且 `C₀` 的权重是 1 而非 2 —— 任何把权重记错成 2 的实现都会在这里差 π。
+    夹具必须是**非**旋转对称形状：中心对称形状上任何权重 1 泛函必然归零，
+    `c0` 会（正确地）返回 `kind="none"`，那时测的就不是规范等变性了。
+    """
+    b = _boundary(_SHAPES["bent_lobe"])
+    base = hbs.get_hbs_result(b, method=engine, disk=disk, circle_point_num=CIRCLE,
+                              normalize="c0")
+    assert base.gauge.kind == "c0" and base.gauge.phase is not None
+    for label, fn in _TRANSFORMS.items():
+        got = hbs.get_hbs_result(fn(b), method=engine, disk=disk,
+                                 circle_point_num=CIRCLE, normalize="c0")
+        assert got.gauge.kind == "c0", f"{engine}/{label}：c0 退化成 {got.gauge.kind}"
+        assert _rel(got.mu, base.mu) < 1e-6, f"{engine}/{label}"
+
+
+@pytest.mark.parametrize("engine", ["angular", "zipper"])
 def test_rigid_transform_leaves_the_welding_alone(engine):
     """焊接 `(x, y)` 本身在刚体变换下不变（不是靠规范吸收）。"""
     b = _boundary(_SHAPES["asym_dent3"])

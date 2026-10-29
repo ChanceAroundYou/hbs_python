@@ -63,6 +63,32 @@
 （`conf` ≳ 3%）绝对精度已到 1–2°，而 M3+M4 有分支翻转风险（`branch_margin`）。
 它只说明 I₂ 的精度余量比 M₃ 小一个量级。
 
+## 无分支规范 C₀（未发布新增，`kind="c0"`，opt-in）
+
+前两套都要么有分支（m34），要么精度差一个量级（I₂）。第三套是无分支的：
+
+    C₀(μ) = M₁·conj(M₃) = (∫zμ dA)·conj(∫μ dA)        权重 3 − 2 = 1
+    T = arg C₀                                          唯一解，无分支
+
+两个矩相乘（一个取共轭）使权重相减为 1，于是相位不再有 π 歧义。它用的是两个
+**离散等变性最好**的矩：`M₃` 只看到误差场的 m=0（FEM 弱形式把它消到舍入量级），
+`M₁` 只看到 m=−1（探针残差 0.0001°）。实测 8 个真实形状上的等变残差
+1.3e-4–8.6e-4°，`C₁ = ∫z²μ·conj(∫zμ)` 是 3.0e-4–6.0e-3°。
+
+**代价**：`C₀` 是**乘积**，任一因子归零就整体归零。这是结构性的——
+若 `Φ_{2π/n}μ = μ`（n≥2 的旋转对称形状），任意权重 1 泛函 `F` 都满足
+`F(μ) = e^{−2πi/n}F(μ) = 0`。中心对称形状的 `μ` 确实满足 `Φ_πμ = μ`
+（`H(−z) = H(z)+const`，加常数不改导数），所以 `c0` 在它们上面**必然**返回
+`kind="none"`。这不是数值噪声，而是形状本身没有偏好相位。m34（权重 2）在那种
+形状上还能给出 `T mod π`，是无分支设计换来的代价。
+
+**为什么不用 m1m3**（M₃ 定 `T mod π`、M₁ 挑分支）：那是 m34 的同一个格，`T` 只差
+0/π，仍然有 180° 分支；而且它比 m34 **更差**，不是更接近。挑支量
+`s = arg M₁ − arg M₃/2` 的旋转权重是 `3 − 1 = 2`（M₁ 权重 3、M₃/2 权重 1），
+源圆转一圈 `s` 转两圈，于是**每圈必然跨过分支边界 4 次**（实测每个形状、每个
+引擎恰好 4 次）。m34 用 I₂，`s` 的权重是 `1 − 1 = 0`，与源旋转无关——这正是
+论文 (5.9) 选 I₂ 挑支的原因。无分支只有权重 1 一条路。
+
 ## 退化
 
 两个泛函都可能近零：`|I₂|/Σ|term|` 或 `|M₃|/Σ|term|` 很小时，`arg` 由噪声决定，
@@ -108,8 +134,8 @@ I2_CONFIDENCE = 1e-4
 #: 详见 `CHANGELOG.md` 的 `[Unreleased]` Notes。
 AUTO_I2_CONFIDENCE = 1e-2
 
-#: 合法的规范名。
-GAUGES = ("auto", "i2", "m34", "none")
+#: 合法的规范名。`"c0"` 为未发布新增的无分支锚，见模块文档「无分支规范 C₀」。
+GAUGES = ("default", "auto", "i2", "m34", "c0", "none")
 
 TWO_PI = 2.0 * np.pi
 
@@ -122,7 +148,7 @@ class GaugeChoice:
     """
 
     kind: str
-    """实际施加的规范：`"i2"` / `"m34"` / `"none"`。"""
+    """实际施加的规范：`"i2"` / `"m34"` / `"c0"` / `"none"`。"""
 
     phase: float | None
     """源圆旋转角 `T`（弧度）。`None` 表示两个泛函都不可信，未施加旋转。"""
@@ -149,6 +175,15 @@ class GaugeChoice:
     reason: str
     """为什么选了这个规范（人类可读）。"""
 
+    c0: complex = 0j
+    """`C₀ = M₁·conj(M₃)`（原始值，未归一）。只有 `kind="c0"` 才非零。"""
+
+    confidence_c0: float = 0.0
+    """`|C₀| / (S₁·S₃)`：无分支锚的可信度。`kind="c0"` 的**唯一**稳定性指标。
+
+    `branch_margin` 对 `c0` 没有意义（没有分支），恒报 `π/2` 作中性值。
+    """
+
     def as_dict(self) -> dict:
         return {
             "kind": self.kind,
@@ -160,6 +195,8 @@ class GaugeChoice:
             "branch": self.branch,
             "branch_margin": float(self.branch_margin),
             "reason": self.reason,
+            "c0": [float(self.c0.real), float(self.c0.imag)],
+            "confidence_c0": float(self.confidence_c0),
         }
 
 
@@ -198,6 +235,31 @@ def _confidence(value: complex, magnitude: float) -> float:
     if not np.isfinite(value):
         return 0.0
     return float(abs(value) / magnitude)
+
+
+def _c0_moments(mu: np.ndarray, disk) -> tuple[complex, float]:
+    """返回 `(C₀, S₁·S₃)`，其中 `C₀ = M₁·conj(M₃)`。
+
+    这是**独立**的求和路径，不经过 `_moments`：`auto`/`i2`/`m34` 的输出必须
+    逐位不变，所以不给那三个分支增加任何新的浮点运算（`tests/test_gauges.py::
+    test_existing_kinds_are_bitwise_unchanged` 钉住这一点）。
+
+    有效面片规则与 `_moments` 一致：跳过非有限面片与落在原点的面心。
+    `C₀` 的旋转权重是 1（`M₁` 权重 3、`M₃` 权重 2），所以规范后相位唯一。
+    """
+    mu = np.asarray(mu)
+    center = to_complex(disk.face_center)
+    assert center.shape == (mu.shape[0],)
+    area = np.abs(np.asarray(disk.area, dtype=float))
+    valid = np.isfinite(mu) & (np.abs(center) > np.finfo(float).eps)
+    if not valid.any():
+        return 0j, 0.0
+    weighted = mu[valid] * area[valid]                 # μ·dA，M₃ 的被积式
+    z = center[valid]
+    m1 = (weighted * z).sum()                          # M₁ = ∫ z μ dA
+    m3 = weighted.sum()                                # M₃ = ∫ μ dA
+    scale = float(np.abs(weighted * z).sum() * np.abs(weighted).sum())
+    return complex(m1 * np.conj(m3)), scale
 
 
 def _phase_from_arrays(
@@ -239,6 +301,16 @@ def m3_functional(mu: np.ndarray, disk) -> complex:
     return _moments(mu, disk)[2]
 
 
+def c0_functional(mu: np.ndarray, disk) -> complex:
+    """未加门的 `C₀ = M₁·conj(M₃)`，权重 1 的无分支锚。
+
+    `M₁ = ∫zμ dA`（权重 3）、`M₃ = ∫μ dA`（权重 2），乘积权重 1，所以
+    `arg C₀` 是 `T` 的唯一解。零集是形状的对称性与两个矩单独的零点；
+    `C₀` 归零时相位不可定义，调用方须用 `confidence_c0` 判断。
+    """
+    return _c0_moments(mu, disk)[0]
+
+
 def i2_phase(
     mu: np.ndarray,
     disk,
@@ -261,12 +333,15 @@ def select_gauge(
 ) -> GaugeChoice:
     """选择源圆旋转 `T` 并返回全部诊断量。**这是唯一入口**。
 
-    :param `kind`: `"auto"` / `"i2"` / `"m34"` / `"none"`
+    :param `kind`: `"auto"` / `"i2"` / `"m34"` / `"c0"` / `"none"`
     :param `confidence_threshold`: 硬门，两个泛函都低于此值就返回 `phase=None`
     :param `auto_threshold`: `"auto"` 下改用 M3+M4 的 I₂ 可信度门
 
     `"m34"` 的闭式解见模块文档。分支判据用 `s = (τ₁ − τ₀/2) mod 2π`，落在
     `[0,π)` 取 `T = τ₀/2`，否则取 `T = τ₀/2 + π`。
+
+    `"c0"` 是无分支锚：`T = arg C₀`，`C₀ = M₁·conj(M₃)`。它**没有分支判定**，
+    也没有第二套规范可退；`C₀` 低于硬门时直接报未定。
     """
     if kind not in GAUGES:
         raise ValueError(f"kind must be one of {GAUGES}, got {kind!r}")
@@ -279,6 +354,24 @@ def select_gauge(
     i2, i2_mag, m3, m3_mag = _moments(mu, disk)
     conf_i2 = _confidence(i2, i2_mag)
     conf_m3 = _confidence(m3, m3_mag)
+
+    if kind in ("c0", "default"):
+        c0, c0_scale = _c0_moments(mu, disk)
+        conf_c0 = _confidence(c0, c0_scale)
+        if conf_c0 < confidence_threshold:
+            return GaugeChoice(
+                "none", None, i2, m3, conf_i2, conf_m3, None,
+                float(np.pi / 2),
+                f"C₀ 可信度 {conf_c0:.3g} < 硬门 {confidence_threshold:g}：未定"
+                "（C₀=0 多为旋转对称形状，相位本就不可辨识）",
+                c0, conf_c0,
+            )
+        return GaugeChoice(
+            kind, float(np.angle(c0)), i2, m3, conf_i2, conf_m3, None,
+            float(np.pi / 2),
+            f"按请求使用无分支锚 C₀（权重 1，可信度 {conf_c0:.3g}）",
+            c0, conf_c0,
+        )
 
     tau0 = float(np.angle(m3)) if conf_m3 > 0 else 0.0
     tau1 = float(np.angle(i2)) if conf_i2 > 0 else 0.0

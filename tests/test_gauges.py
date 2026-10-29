@@ -221,6 +221,114 @@ def test_unknown_gauge_raises():
         gauges.select_gauge(np.ones(8), _disk(RING, np.full(8, 0.1)), "c1")
 
 
+# --- 无分支锚 C₀ = M₁·conj(M₃)（kind="c0"）---
+
+def test_c0_functional_has_weight_one():
+    """`C₀(Φ_Tμ) = e^{−iT}C₀(μ)`：权重 1 是无分支的唯一来源。
+
+    权重 2 会让 `T` 有 π 的歧义（m34 的分支），权重 1 才给出唯一解。
+    """
+    centers, areas, mu = _generic(seed=17)
+    disk = _disk(centers, areas)
+    c0 = gauges.c0_functional(mu, disk)
+    assert abs(c0) > 1e-3, "夹具必须让 C₀ 非零，否则测的是退化检测"
+
+    for theta in (0.3, -1.1, 2.4):
+        c, a, m = _rotate(centers, areas, mu, theta)
+        ratio = gauges.c0_functional(m, _disk(c, a)) / c0
+        assert np.isclose(ratio, np.exp(-1j * theta), atol=1e-12)
+
+
+def test_c0_gauge_annihilates_c0_argument():
+    centers, areas, mu = _generic(seed=19)
+    disk = _disk(centers, areas)
+    choice = gauges.select_gauge(mu, disk, "c0")
+    assert choice.kind == "c0" and choice.phase is not None
+
+    c, a, m = _rotate(centers, areas, mu, choice.phase)
+    assert abs(np.angle(gauges.c0_functional(m, _disk(c, a)))) < 1e-12
+    expected = (choice.phase - np.angle(gauges.c0_functional(mu, disk))) % TWO_PI
+    assert min(expected, TWO_PI - expected) < 1e-12
+
+
+def test_c0_is_closed_form_and_idempotent():
+    """闭式：一次调用给出相位，再选一次相位为 0。没有分支判定、没有循环。"""
+    centers, areas, mu = _generic(seed=23)
+    first = gauges.select_gauge(mu, _disk(centers, areas), "c0")
+    assert first.phase is not None and first.branch is None
+
+    c, a, m = _rotate(centers, areas, mu, first.phase)
+    second = gauges.select_gauge(m, _disk(c, a), "c0")
+    assert second.kind == "c0" and second.phase is not None
+    assert abs(second.phase) < 1e-10
+
+
+def test_c0_reports_undetermined_on_centrally_symmetric_field():
+    """`μ(−z)=μ(z)` ⇒ `M₁=0` ⇒ `C₀=0`：必须报未定，不能给噪声方向。
+
+    这是结构性的：中心对称形状在源圆上旋转 π 后 HBS 逐位相同，相位不可辨识。
+    """
+    centers = np.array([0.6 + 0.2j, -0.6 - 0.2j, 0.1 - 0.5j, -0.1 + 0.5j])
+    areas = np.ones(4)
+    mu = np.array([1.0, 1.0, 0.4 - 0.3j, 0.4 - 0.3j])
+    assert abs(gauges.c0_functional(mu, _disk(centers, areas))) < 1e-15
+
+    choice = gauges.select_gauge(mu, _disk(centers, areas), "c0")
+    assert choice.phase is None and choice.kind == "none"
+    assert choice.confidence_c0 < gauges.I2_CONFIDENCE
+
+
+def test_c0_reports_undetermined_when_m3_cancels():
+    """`M₃=0` 而 `M₁≠0`：乘积照样为零。两个因子任一归零都是未定。"""
+    centers = np.array([0.5 + 0j, -0.4 + 0.3j])
+    areas = np.array([1.0, 1.0])
+    mu = np.array([1.0, -1.0])          # Σμ·A = 0，Σμ·A·z = 0.9 − 0.3j
+    assert abs(gauges.m3_functional(mu, _disk(centers, areas))) < 1e-15
+    assert abs(gauges.c0_functional(mu, _disk(centers, areas))) < 1e-15
+
+    choice = gauges.select_gauge(mu, _disk(centers, areas), "c0")
+    assert choice.phase is None and choice.kind == "none"
+
+
+def test_c0_choice_reports_its_own_diagnostics():
+    centers, areas, mu = _generic(seed=29)
+    choice = gauges.select_gauge(mu, _disk(centers, areas), "c0")
+    assert choice.c0 != 0
+    assert 0.0 < choice.confidence_c0 <= 1.0
+    payload = choice.as_dict()
+    assert "c0" in payload and "confidence_c0" in payload
+    assert payload["kind"] == "c0"
+
+
+#: 2.3.1 里 `select_gauge` 在固定夹具上的逐位输出。加 `"c0"` **不得**改变它们。
+_LEGACY_PHASES = {
+    "i2": -2.8720584322370755,
+    "m34": 2.6423186107800714,
+    "auto": -2.8720584322370755,
+}
+_LEGACY_CONF = (0.06963705426707052, 0.11860337362869355)
+
+
+def _legacy_fixture():
+    rng = np.random.default_rng(20261029)
+    n = 40
+    radius = rng.uniform(0.15, 0.85, n)
+    angle = rng.uniform(0, TWO_PI, n)
+    centers = radius * np.exp(1j * angle)
+    areas = rng.uniform(0.01, 0.05, n)
+    mu = rng.normal(0.0, 0.5, n) + 1j * rng.normal(0.0, 0.5, n)
+    return _disk(centers, areas), mu
+
+
+@pytest.mark.parametrize("kind", sorted(_LEGACY_PHASES))
+def test_existing_kinds_are_bitwise_unchanged(kind):
+    """`auto`/`i2`/`m34` 的相位与可信度必须**逐位**不变（不是近似）。"""
+    disk, mu = _legacy_fixture()
+    choice = gauges.select_gauge(mu, disk, kind)
+    assert choice.phase == _LEGACY_PHASES[kind]
+    assert (choice.confidence_i2, choice.confidence_m3) == _LEGACY_CONF
+
+
 # --- apply_gauge / rotate_disk 的配对契约 ---
 
 def test_apply_gauge_changes_only_phase():
@@ -265,11 +373,18 @@ def test_angular_compat_wrapper_returns_the_gauge_choice(disk):
     这条路径在 2.3.0 差点漏掉：`build_hbs` 的返回从 4 元组变成 5 元组时，
     这个包装器仍在按 4 元组解包，只有直接调用才会暴露（测试套件里没有别的
     调用方）。
+
+    夹具用**非对称**形状：中心对称形状上任何权重 1 规范都必然返回 `none`
+    （见 `test_c0_reports_undetermined_on_centrally_symmetric_field`），
+    用椭圆测“每套规范都生效”会测到别的东西。
     """
     import hbs.angular as angular
 
     t = np.linspace(0, 2 * np.pi, 500, endpoint=False)
-    bound = np.stack([1.2 * np.cos(t), np.sin(t)], axis=1)
+    bound = np.stack(
+        [1.2 * np.cos(t) + 0.09 * np.cos(2 * t + 0.7),
+         np.sin(t) + 0.05 * np.sin(3 * t)], axis=1
+    )
 
     for kind in gauges.GAUGES:
         mu, _field, used, _res, stats = angular.angular_mu_from_boundary(

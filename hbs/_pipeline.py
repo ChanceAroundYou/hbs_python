@@ -18,9 +18,11 @@ angular 与 zipper 各写一套，同一个规范化的语义必然漂移，连�
 
 | `normalize` | 规范 | 何时可靠 |
 |---|---|---|
-| `"auto"`（默认） | I₂ 可信度够高用 I₂，否则退到 M3+M4 | 全部形状：两套互补 |
+| `"default"`（默认） | 无分支锚 `C₀ = M₁·conj(M₃)` | 非旋转对称形状；`C₀` 归零即报未定 |
+| `"auto"` | I₂ 可信度够高用 I₂，否则退到 M3+M4 | 全部形状：两套互补（已弃用，等价于旧默认） |
 | `"i2"` | 只用 I₂ | 非近对称形状；`abs(I₂)/Σabs(term)` 高 |
 | `"m34"` | 只用论文 (5.8)+(5.9) | I₂ 近零但 M₃ 不近零 |
+| `"c0"` | 无分支锚 `C₀ = M₁·conj(M₃)` | 非旋转对称形状；`C₀` 归零即报未定 |
 | `"none"` | 不施加 | 需要引擎原样输出时 |
 
 `"auto"` 的切换门是 `gauges.AUTO_I2_CONFIDENCE`。切换本身是**不连续**的：跨过门限的
@@ -50,8 +52,8 @@ DEFAULT_CIRCLE = 500
 #: μ 源圆旋转规范的合法取值，语义见模块文档与 `hbs.gauges.GAUGES`。
 NORMALIZATIONS = gauges.GAUGES
 
-#: 默认规范。`auto` 在 I₂ 可信时用它、近零时退到 M3+M4。
-DEFAULT_NORMALIZE = "auto"
+#: 默认规范：无分支锚 C₀（`default` = `c0`）。
+DEFAULT_NORMALIZE = "default"
 
 
 @dataclass(frozen=True)
