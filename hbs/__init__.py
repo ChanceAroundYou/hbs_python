@@ -2,7 +2,7 @@
 
 由平面形状边界求调和 Beltrami 签名（复系数，定义在三角面心），并从中重建形状。
 """
-__version__ = "2.3.3"
+__version__ = "2.3.4"
 
 from ._pipeline import (
     DEFAULT_NORMALIZE,

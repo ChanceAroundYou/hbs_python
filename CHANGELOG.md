@@ -10,6 +10,8 @@ version newer than PyPI's latest describe work that is on `main` only.
 
 ## [Unreleased]
 
+## [2.3.4] — 2026-10-30
+
 ### Changed — internal: engines hand over boundary values, the shared backend no longer resamples
 
 - `hbs._engines.WeldingResult` now carries `values` — the welding's boundary values on
@@ -52,6 +54,16 @@ version newer than PyPI's latest describe work that is on `main` only.
   `welding.y` / `init_x` / `init_y` are unchanged. `tests/test_pipeline_contract.py` now
   asserts `welding.x == disk.circle` and `field[:circle_num] == welding.y` under every
   `normalize`.
+
+### Notes — published
+
+`pip install hbs` now gives 2.3.4. Nothing on the forward path moved: `μ`, `field`, the
+gauge phase and the returned `disk` are bitwise identical to 2.3.3, so the measured
+block in the README (solved on 2.3.3) still describes 2.3.4 exactly. The visible deltas
+are both in `welding`: `get_conformal_welding(..., normalize="none")` now returns the
+same resampled welding `get_hbs` used (for `method="zipper"` it used to differ by up to
+π in `y`'s angle), and `welding.x` after a gauge now sits on the disk vertices instead
+of the engine's raw source grid (zipper only; angular moves by ≤ 1.8e-15).
 
 ## [2.3.3] — 2026-10-30
 
@@ -614,6 +626,7 @@ no smooth reparameterization that fixes it.
   `post_deepen` parameter was removed entirely.
 - Nothing else in the public API changed.
 
+[2.3.4]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.3.3...v2.3.4
 [2.3.3]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.3.2...v2.3.3
 [2.3.2]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.3.0...v2.3.1
