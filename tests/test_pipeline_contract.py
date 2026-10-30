@@ -16,7 +16,10 @@
 - `build_hbs(values, welding_or_None, disk, fem, normalize)` 不做任何插值，也不
   需要 `ConformalWelding` 才能算 μ —— `welding` 只为 `rotate_x` 的记账服务。
 
-两条路径的数值必须与重构前逐位相同（守卫脚本 `/tmp/hbs_refactor_guard.py`）。
+前向数值与 2.3.3 逐位相同：μ、`field`、焊接的 `y`/`init_x`/`init_y`、盘顶点与
+规范相位在 46 组配置（2 引擎 × 4 `normalize` × 4 形状，外加非默认网格、重建门与
+`angular_mu_from_boundary` 入口）的 sha256 快照上逐一相同。唯一的例外是
+`welding.x`——`rotate_x` 的修复有意改变它，见文件末尾那个测试。
 """
 
 from __future__ import annotations
