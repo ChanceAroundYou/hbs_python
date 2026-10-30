@@ -143,10 +143,10 @@ def angular_mu_from_boundary(
     # 与 `get_hbs(method="angular")` 一致：角速度引擎不重采样输入边界。
     prepared = prepare_boundary(np.asarray(bound, float), circle_num, resample=False)
     result = _engine(prepared, circle_num)
-    result.welding.linear_interp(circle_num)
     disk, fem = resolve_disk(disk, 0.01, circle_num)
+    # `result.values` 已由引擎取样到源圆均匀网格；这里不再重复 `linear_interp`。
     mu, field, welding, disk, gauge = build_hbs(
-        result.welding, disk, fem, circle_num, normalize
+        result.values, result.welding, disk, fem, normalize
     )
     return (
         mu,

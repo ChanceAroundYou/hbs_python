@@ -9,6 +9,8 @@
 
 - 各自独立求出焊接 `f: S¹ → S¹`，不共享任何求解代码；
 - 结果只允许相差**源圆旋转**（`hbs.weld_compare` 度量，N=600 时 `rms(δ−S) ≈ 0.1°`）；
+- 交回的边界值已在**源圆均匀网格** `θ_k = 2πk/circle_num` 上（`WeldingResult.values`，
+  `tests/test_pipeline_contract.py` 钉住）：重采样是引擎自己的收尾步骤，管线不插值；
 - 焊接之后的一切（M1/M2 之后的 FEM 延拓、μ、I₂）**完全共用** `_pipeline`。
 
 ## 两个引擎
@@ -41,13 +43,42 @@ from hbs.conformal_welding import (
 class WeldingResult:
     """一个引擎给出的焊接及其诊断信息。
 
-    `welding` 是 `angular_welding` 的字典形式或已构造好的 `ConformalWelding`；
+    `values` 是**契约量**：长度 `circle_num` 的复数组，源圆均匀网格
+    `θ_k = 2πk/circle_num` 上的边界值——`|values| = 1`、绕圆一周严格单调、首点
+    相位归零。共用后端只消费它，**不再插值**；引擎各自负责把自己的输出放到这个
+    网格上（`angular` 本来就在，`zipper` 的源角非均匀，必须重采样）。
+
+    `welding` 是诊断与记账用的对象：施加规范后 `rotate_x` 要跟着转源角，
+    `weld_compare` 用它比较两个引擎。数值路径不需要它（`build_hbs` 接受
+    `welding=None`）。
+
     `rung` 非 `"raw"` 表示原始输入失败、用了降级的平滑重采样，调用方应告知用户。
     """
 
+    values: np.ndarray
     welding: ConformalWelding
     rung: str
     engine: str
+
+
+def _result(
+    welding: ConformalWelding, rung: str, engine: str, circle_num: int
+) -> WeldingResult:
+    """把引擎输出收拾成 `WeldingResult`：在源圆均匀网格上取样。
+
+    重采样放在**引擎侧**而不是共用后端：angular 的输出本就在均匀源角上（这次
+    调用数值恒等，实测 `y` 差 1.1e-14），zipper 的输出源角非均匀（实测相邻源角
+    相差 0.021–0.052 rad），必须重采样。哪一侧需要重采样是引擎的实现细节，不该
+    漏进 `_pipeline`；`linear_interp` 用的是**线性**插值，留在后端会静默吃掉
+    将来非均匀源角引擎的精度。
+    """
+    welding.linear_interp(circle_num)
+    return WeldingResult(
+        values=np.array(welding.y, complex),
+        welding=welding,
+        rung=rung,
+        engine=engine,
+    )
 
 
 def _rungs(bound: np.ndarray) -> "list[tuple[str, np.ndarray]]":
@@ -70,16 +101,20 @@ def _rungs(bound: np.ndarray) -> "list[tuple[str, np.ndarray]]":
 def _first_success(
     engine: str,
     bound: np.ndarray,
+    circle_num: int,
     attempt: Callable[[np.ndarray], ConformalWelding],
 ) -> WeldingResult:
     """按输入阶梯逐级尝试一个引擎，返回第一个成功的结果。
 
     任一引擎都**只用自己的阶梯**，失败时抛 `RuntimeError`，不换引擎。
+
+    成功判据包含「在源圆均匀网格上取样」（`_result`）：取样是该引擎自己的收尾
+    步骤，失败时同样轮到下一级阶梯，而不是把异常漏出共用后端。
     """
     last: Exception | None = None
     for rung, candidate in _rungs(bound):
         try:
-            return WeldingResult(attempt(candidate), rung, engine)
+            return _result(attempt(candidate), rung, engine, circle_num)
         except (RuntimeError, ValueError, ConformalWeldingNumericalError) as exc:
             last = exc
     raise RuntimeError(
@@ -94,7 +129,7 @@ def angular(bound: np.ndarray, circle_num: int) -> WeldingResult:
     from hbs.angular import angular_welding
 
     return _first_success(
-        "angular", bound,
+        "angular", bound, circle_num,
         lambda candidate: ConformalWelding.from_angular(
             angular_welding(candidate, circle_num=circle_num)
         ),
@@ -104,7 +139,7 @@ def angular(bound: np.ndarray, circle_num: int) -> WeldingResult:
 def zipper(bound: np.ndarray, circle_num: int) -> WeldingResult:
     """Zipper 引擎：Bishop/Marshall zipper 算法。"""
     return _first_success(
-        "zipper", bound,
+        "zipper", bound, circle_num,
         lambda candidate: zipper_welding_prepared(candidate),
     )
 

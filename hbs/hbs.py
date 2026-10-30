@@ -187,8 +187,9 @@ def _solve_hbs(
     )
     welding_result = ENGINES[method](prepared, circle_point_num)
     disk, fem = resolve_disk(disk, density, circle_point_num)
+    # 引擎交回的 `values` 已在源圆均匀网格上；共用后端不做插值。
     mu, field, welding, disk, gauge = build_hbs(
-        welding_result.welding, disk, fem, circle_point_num, normalize
+        welding_result.values, welding_result.welding, disk, fem, normalize
     )
     return HBSResult(
         mu=mu,

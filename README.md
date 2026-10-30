@@ -86,9 +86,11 @@ return a degenerate curve, and will not switch engines. The rung that succeeded 
 reported in `HBSResult.rung`: anything other than `"raw"` is a **degraded** result
 (usable, but with fidelity an order of magnitude worse), so surface it to your users.
 
-After the welding, both engines share one backend (`hbs._pipeline`): orientation,
-geometric anchor, arc-length resampling, FEM harmonic extension, `μ`, and the gauge.
-There is no second copy of that logic.
+Both engines share one backend: orientation, geometric anchor and arc-length
+resampling (`_pipeline.prepare_boundary`, **before** the welding), then FEM harmonic
+extension, `μ` and the gauge (`_pipeline.build_hbs`, **after** it). Each engine hands
+back its boundary values on the uniform source circle, so the backend never
+re-samples them — and there is no second copy of that logic.
 
 ### `normalize` — which source-circle rotation gauge is applied
 
@@ -198,8 +200,10 @@ are recorded in [CHANGELOG.md](https://github.com/ChanceAroundYou/hbs_python/blo
 ## Main modules
 
 - `hbs.py`: `get_hbs` / `get_hbs_result` / `reconstruct_from_hbs`
-- `_engines.py`: the two forward engines behind one registry (`angular`, `zipper`)
-- `_pipeline.py`: the single backend after the welding — prepare, FEM extension, `μ`, gauges, `compare_engines`
+- `_engines.py`: the two forward engines behind one registry (`angular`, `zipper`); each
+  resamples its own output onto the uniform source circle, so the backend never does
+- `_pipeline.py`: the single backend — prepare, FEM extension, `μ`, gauges,
+  `compare_engines`; consumes boundary values, not a welding object
 - `_guard.py`: optional reconstruction validity gate (2.3.2)
 - `angular.py` + `_angular/direct.py`: the angular-velocity engine and its vendored kernel (NumPy/SciPy only)
 - `conformal_welding.py`: `ConformalWelding` / `get_conformal_welding`

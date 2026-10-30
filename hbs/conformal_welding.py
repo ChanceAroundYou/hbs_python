@@ -257,11 +257,12 @@ def get_conformal_welding(
     prepared = prepare_boundary(
         np.asarray(bound, float), resample_to, resample=(method != "angular")
     )
+    # 引擎交回的焊接已经在源圆均匀网格上（`WeldingResult.values`），这里不再
+    # 重采样——否则 `normalize="none"` 下会与 `get_hbs` 交回不同状态的焊接。
     welding = ENGINES[method](prepared, resample_to).welding
 
     if normalize != "none":
         disk, fem = resolve_disk(None, 0.01, resample_to)
-        welding.linear_interp(resample_to)
         field, _ = fem_extend(disk, np.asarray(welding.y, complex), fem=fem)
         choice = gauges.select_gauge(
             get_beltrami_coefficient(field, disk), disk, normalize

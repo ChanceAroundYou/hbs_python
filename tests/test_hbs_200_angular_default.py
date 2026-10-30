@@ -160,7 +160,10 @@ def test_ladder_is_per_engine(monkeypatch):
 
     def _zip(bound, circle_num):
         from hbs.conformal_welding import zipper_welding_prepared
-        return engines.WeldingResult(zipper_welding_prepared(bound), "raw", "zipper")
+        # 引擎侧还要把输出取样到源圆均匀网格（`_engines._result` 的职责）。
+        return engines._result(
+            zipper_welding_prepared(bound), "raw", "zipper", circle_num
+        )
 
     monkeypatch.setitem(engines.ENGINES, "zipper", tracking_zipper)
     get_hbs_result(_oval(), method="zipper", **_cfg())

@@ -2,12 +2,16 @@
 
     bound
       → validate / prepare（定向 → 几何锚点 → 弧长重采样）
-      → <engine>            （`hbs._engines`，两套独立实现）
-      → ConformalWelding
-      → linear_interp        （重采样到源圆的均匀网格）
+      → <engine>            （`hbs._engines`，两套独立实现；含自身输出到源圆
+                             均匀网格的取样，交出 `WeldingResult.values`）
       → fem_extend           （P1 弱拉普拉斯求解，磁盘缓存的 A/B）
       → μ = H_z̄ / H_z
       → 源圆旋转规范          （`hbs.gauges.select_gauge`，坐标与相位同时转）
+
+边界值从引擎侧就是**源圆均匀网格上的 `values`**，这里不再插值、也不需要
+`ConformalWelding` 才能算 μ（焊接对象只用于诊断与 `rotate_x` 记账）。这样
+「引擎输出在哪个网格上」是引擎自己的契约，不会因为后端里的一次线性插值而静默
+降级。
 
 把后两端（延拓、μ、规范）放在一个模块里，是因为它们**不应**有第二份实现：历史上
 angular 与 zipper 各写一套，同一个规范化的语义必然漂移，连返回的 `disk` 顶点都对不上。
@@ -120,13 +124,22 @@ def resolve_disk(
 
 
 def build_hbs(
-    welding: ConformalWelding,
+    values: np.ndarray,
+    welding: ConformalWelding | None,
     disk: DiskMesh,
     fem: tuple,
-    circle_num: int,
     normalize: str = DEFAULT_NORMALIZE,
-) -> tuple[np.ndarray, np.ndarray, ConformalWelding, DiskMesh, gauges.GaugeChoice]:
-    """焊接 → μ。两引擎共用，唯一实现。
+) -> tuple[np.ndarray, np.ndarray, ConformalWelding | None, DiskMesh,
+           gauges.GaugeChoice]:
+    """源圆边界值 → μ。两引擎共用，唯一实现。
+
+    :param `values`: 源圆**均匀网格**上的边界值（引擎的契约，见
+        `hbs._engines.WeldingResult.values`）；这里**不做任何插值**
+    :param `welding`: 可为 `None`。只用于施加规范后同步转源角（`rotate_x`），
+        数值路径不依赖它——`tests/test_pipeline_contract.py` 钉住
+        「传焊接与传 `None` 给出逐位相同的 μ / field / 网格」
+    :param `disk` / `fem`: 盘与它的弱拉普拉斯块
+    :param `normalize`: 源圆旋转规范
 
     返回 `(mu, field, welding, disk, gauge)`；`disk` 在施加规范后是**新的**
     `DiskMesh`（顶点整体旋转），调用方必须使用返回值而不是入参。
@@ -134,8 +147,7 @@ def build_hbs(
     if normalize not in NORMALIZATIONS:
         raise ValueError(f"normalize must be one of {NORMALIZATIONS}, got {normalize!r}")
 
-    welding.linear_interp(circle_num)
-    field, _ = fem_extend(disk, np.asarray(welding.y, complex), fem=fem)
+    field, _ = fem_extend(disk, np.asarray(values, complex), fem=fem)
     mu = get_beltrami_coefficient(field, disk)
 
     choice = gauges.select_gauge(mu, disk, normalize)
@@ -149,7 +161,8 @@ def build_hbs(
     mu, scale, choice = gauges.apply_gauge(mu, disk, choice)
     disk = gauges.rotate_disk(disk, scale)
     # 源圆角与顶点同转；目标圆角不动（映射没变，只是源参数化旋转了）。
-    welding.rotate_x(choice.phase)
+    if welding is not None:
+        welding.rotate_x(choice.phase)
     return mu, field, welding, disk, choice
 
 

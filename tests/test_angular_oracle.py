@@ -55,9 +55,11 @@ def _chain(kind: str):
     welding = ConformalWelding.from_angular(
         angular_welding(prepared, circle_num=CIRCLE_NUM, n=SOLVER_N)
     )
+    # 引擎侧的取样步骤（`_engines._result` 做的事）：管线本身不再插值。
+    welding.linear_interp(CIRCLE_NUM)
     disk, fem = resolve_disk(None, 0.01, CIRCLE_NUM)
     _mu, field, welding, disk, _gauge = build_hbs(
-        welding, disk, fem, CIRCLE_NUM, "none"
+        np.asarray(welding.y, complex), welding, disk, fem, "none"
     )
     return prepared, solver, welding, disk, field
 

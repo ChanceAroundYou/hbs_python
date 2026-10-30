@@ -10,7 +10,30 @@ version newer than PyPI's latest describe work that is on `main` only.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed — internal: engines hand over boundary values, the shared backend no longer resamples
+
+- `hbs._engines.WeldingResult` now carries `values` — the welding's boundary values on
+  the **uniform source grid** `θ_k = 2πk/circle_num` — and each engine produces them
+  itself (`_engines._result`). `hbs._pipeline.build_hbs(values, welding_or_None, disk,
+  fem, normalize)` no longer calls `ConformalWelding.linear_interp`, and accepts
+  `welding=None`: the object is used only to rotate the source angles alongside the
+  gauge (`rotate_x`), never by the numerics.
+- Why: the numeric path depended on a class defined by zipper semantics (on an
+  angular-built object `x_post_norm` / `y_post_norm` / `uniquify` raise
+  `NotImplementedError`), and `linear_interp` is a **linear** interpolation — a latent
+  silent downgrade for any future engine whose output is not already on the uniform
+  grid. Resampling belongs to whichever engine needs it: `angular`'s output is already
+  uniform (the call is numerically inert, `|Δy| = 1.1e-14`), `zipper`'s is not
+  (neighbouring source angles differ by 0.021–0.052 rad).
+- Fixed on the way: `get_conformal_welding(..., normalize="none")` returned the
+  **un-resampled** welding, so with `method="zipper"` it handed back a different object
+  state than `get_hbs(..., normalize="none")[2]` (`y`'s angle up to π apart). Both now
+  return the engine's output. For `angular` the difference is 1.8e-15.
+- No numerical change on the forward path: `μ`, `field`, welding `x`/`y`/`init_x`/
+  `init_y`, `disk` vertices and gauge phase are bitwise identical to 2.3.3 across a
+  pre/post snapshot of 46 configurations (2 engines × 4 `normalize` × 4 shapes, plus a
+  non-default mesh, the reconstruction guard, and the `angular_mu_from_boundary`
+  entry). `tests/test_pipeline_contract.py` pins the new contract.
 
 ## [2.3.3] — 2026-10-30
 
