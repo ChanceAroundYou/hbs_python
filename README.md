@@ -156,7 +156,9 @@ engines (same mesh, normalize="none")  shift 201.27°, welding rms 0.2868°,
                                        mu rms 0.0044, mu max 0.1118
 ```
 
-`example.ipynb` reproduces every number above from executed cells.
+`example.ipynb` reproduces the solve, gauge, `|μ|`, fidelity and engine-agreement
+numbers above from executed cells. The two timings and the zipper fidelity come from
+separate warmed runs (the notebook measures no time).
 
 `conf_i2 = 0.0023` is below the `AUTO_I2_CONFIDENCE = 1e-2` threshold 2.3.2 used, so
 2.3.2 fell back to M3+M4 here (phase 176.66°); 2.3.3 reports the branch-free `c0`
