@@ -35,6 +35,24 @@ version newer than PyPI's latest describe work that is on `main` only.
   non-default mesh, the reconstruction guard, and the `angular_mu_from_boundary`
   entry). `tests/test_pipeline_contract.py` pins the new contract.
 
+### Fixed — `rotate_x` rotated the wrong source grid
+
+- `ConformalWelding.rotate_x(r)` rebuilt `x` from `init_x_angle` — the **engine's raw**
+  source grid — instead of the grid `x` currently lives on. After `linear_interp` those
+  differ for `zipper` (raw spacing varies 0.021–0.052 rad), so after a gauge the returned
+  `welding.x` no longer matched `disk.circle`, while `field[:circle_num]` still paired
+  element-wise with `welding.y`. Measured before the fix: `max|x − disk.circle|` = 3.1 rad
+  on `zipper`; `angular`'s raw grid is uniform, so it was 1e-15 there.
+- After the fix `x` follows the current grid; `init_x` / `init_x_angle` still rotate the
+  raw grid, which `x_post_norm` and a following `linear_interp` rely on; `y` still does
+  not move — the gauge rotates the source circle only, the target values are unchanged.
+- Inert on the forward path: `μ`, `field`, `disk`, gauge phase, `rung` and `guard_rung`
+  stay bitwise identical; `welding.x` on `angular` shifts by ≤ 1.8e-15 (an ulp, because
+  the uniform grid is re-derived from `angle(x)` instead of the raw start angles), and
+  `welding.y` / `init_x` / `init_y` are unchanged. `tests/test_pipeline_contract.py` now
+  asserts `welding.x == disk.circle` and `field[:circle_num] == welding.y` under every
+  `normalize`.
+
 ## [2.3.3] — 2026-10-30
 
 ### Changed — **BREAKING**: the default gauge is now the branch-free `c0`

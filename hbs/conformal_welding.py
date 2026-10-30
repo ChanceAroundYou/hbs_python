@@ -120,7 +120,8 @@ class ConformalWelding:
         两个不变量必须同时成立，否则下游会把两条焊接的 `y` 当成同一参数化：
 
         `self.x` 被写到从 0 起的均匀网格上；`init_x_angle` 保留插值前的原始起点，
-        供 `rotate_x` / `x_post_norm` 使用。`y` 的相位以首个点为基准归零——这是
+        供 `rotate_x`（`init_x` 一路）与 `x_post_norm` 使用——`rotate_x` 转 `x` 时
+        用的是**当前**网格，不是这张原始网格。`y` 的相位以首个点为基准归零——这是
         重建能落回原尺度与方位的前提，只消除**目标圆**的整体旋转。
         """
         x_angle_regular = np.arange(0, 2 * np.pi, 2 * np.pi / num)
@@ -147,9 +148,23 @@ class ConformalWelding:
         self.x = np.exp(x_angle_regular * 1j)
 
     def rotate_x(self, r):
-        x_angle = np.mod(self.init_x_angle - r, 2 * np.pi)
-        x = np.exp(x_angle * 1j)
-        self._set_init_x(x)
+        """把源圆参数化整体转 `r`：`x` / `init_x` 转，`y` 不动。
+
+        转的是**当前 `x` 所在的网格**，不是 `init_x_angle` 那一张。两者在
+        `linear_interp` 之后不再是同一张网格：`linear_interp` 把 `x` 写到从 0 起的
+        均匀源角上（盘边界顶点就在这张网格上），而 `init_x_angle` 保留引擎的原始
+        起点。角速度引擎的原始网格本来就是均匀的，两种写法等价；zipper 的不是
+        （实测相邻源角相差 0.021–0.052 rad），转原始网格会让 `x` 与盘边界顶点错开
+        3.1 rad，而 `field` 的边界值仍按顶点顺序与 `y` 配对。
+
+        `y` 不动是对的：规范转的是**源圆**——`disk` 顶点随 `x` 一起转，目标圆的值
+        不变。`field[:circle_num]` 与 `y` 逐位相等（`tests/test_pipeline_contract.py`
+        钉住）就是这条不变量的体现。
+        """
+        x = np.exp(1j * np.mod(np.angle(self.x) - r, 2 * np.pi))
+        # 原始网格的起点跟着转，供之后的 `linear_interp` / `x_post_norm` 使用。
+        self._set_init_x(np.exp(1j * np.mod(self.init_x_angle - r, 2 * np.pi)))
+        self.x = x
 
     def x_post_norm(self):
         """

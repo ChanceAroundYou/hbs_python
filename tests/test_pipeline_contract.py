@@ -124,3 +124,31 @@ def test_get_conformal_welding_and_get_hbs_share_the_resampled_welding():
         )
         assert np.array_equal(np.asarray(cw_forward.y), np.asarray(cw_direct.y)), engine
         assert np.array_equal(np.asarray(cw_forward.x), np.asarray(cw_direct.x)), engine
+
+
+@pytest.mark.parametrize("engine", ["angular", "zipper"])
+@pytest.mark.parametrize("normalize", ["none", "i2", "m34", "default"])
+def test_returned_welding_agrees_with_the_mesh_and_the_field(engine, normalize):
+    """规范之后 `welding.x` 必须仍是盘边界顶点，`welding.y` 必须仍是边界值。
+
+    规范转的是**源圆**：`disk` 顶点与 `welding.x` 一起转，目标圆的值（`field`
+    的边界值、`welding.y`）不动。
+
+    修复前 `rotate_x` 转的是 `init_x_angle` 那张网格，而 `linear_interp` 之后
+    `x` 已经在均匀源角上：angular 的原始网格本就均匀，两者等价；zipper 的不是
+    （实测相邻源角 0.021–0.052 rad），于是 `x` 与盘顶点错开 3.1 rad，而
+    `field[:circle_num]` 仍与 `y` 逐位配对。
+    """
+    result = hbs.get_hbs_result(
+        _boundary(), method=engine, normalize=normalize,
+        circle_point_num=CIRCLE, density=DENSITY,
+    )
+    n = result.disk.circle_num
+    circle = result.disk.circle[:, 0] + 1j * result.disk.circle[:, 1]
+    field_boundary = result.field[:n, 0] + 1j * result.field[:n, 1]
+
+    assert np.allclose(np.asarray(result.welding.x), circle, rtol=0, atol=1e-12), (
+        f"{engine}/{normalize}: x 与盘边界顶点的最大偏差 "
+        f"{np.abs(np.asarray(result.welding.x) - circle).max():.2e}"
+    )
+    assert np.array_equal(field_boundary, np.asarray(result.welding.y))
