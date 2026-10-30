@@ -144,20 +144,28 @@ The HBS vector length is the face count of the mesh: the default
 boundary resolution follows `disk.circle_num`. `hbs.cache.load_unit_disk(density,
 circle_point_num)` returns `(disk, fem)` and caches both on disk.
 
-## Measured on `img/example.png` (hbs 2.3.2, default mesh, 2026-10-29)
+## Measured on `img/example.png` (hbs 2.3.3, default mesh, 2026-10-30)
 
 ```
-engine=angular  rung=raw  faces=60796  circle=500   solve 0.6 s warm / 2.8 s cold
-gauge  auto -> m34 (branch m3+pi, phase 176.66°)  conf_i2=0.0023  conf_m3=0.2023  margin 4.86°
-|mu|   max 0.99996, 217 of 60796 faces above 0.99
-reconstruction  similarity-invariant fidelity 0.0174   (zipper on the same input: 0.2568)
-engines (same mesh, normalize="none")  shift 198.40°, welding rms 0.3041°,
-                                       mu rms 0.0042, mu max 0.1002
+engine=angular  rung=raw  faces=60796  circle=500   solve 0.21 s warm (mesh cached)
+gauge  default (c0)  phase 1.07°  conf_i2=0.0023  conf_m3=0.2019  branch_margin 90°
+|mu|   max 0.99996, 220 of 60796 faces above 0.99
+reconstruction  similarity-invariant fidelity 0.0332   (zipper on the same input: 0.2568)
+               reconstruct_from_hbs 1.30 s
+engines (same mesh, normalize="none")  shift 201.27°, welding rms 0.2868°,
+                                       mu rms 0.0044, mu max 0.1118
 ```
 
 `example.ipynb` reproduces every number above from executed cells.
 
-`auto` chose M3+M4 here because `conf_i2 = 0.0023 < 1e-2`. `mu_max` in the engine
+`conf_i2 = 0.0023` is below the `AUTO_I2_CONFIDENCE = 1e-2` threshold 2.3.2 used, so
+2.3.2 fell back to M3+M4 here (phase 176.66°); 2.3.3 reports the branch-free `c0`
+anchor instead (phase 1.07°). Similarity-invariant readings do not move with the
+gauge — 2.3.2 scores `0.0174` for `auto`, `i2`, `m34` and `none` alike. The fidelity
+difference **is** real and comes from the angular engine: 2.3.2 resampled the 250
+input points to 500 before solving, 2.3.3 keeps them. Over the 100-shape frozen set
+that change wins 81:9, but this shape sits at `max|μ| = 0.99996` where the
+reconstruction is sensitive, and it is one of the minority. `mu_max` in the engine
 comparison is dominated by the boundary layer (`r > 0.97`), where `μ = H_z̄/H_z`
 amplifies the input condition number — judge engine agreement by `mu_rms`. Larger
 benchmarks (100-shape frozen sets, MPEG-7 outlines, wall clocks, Chamfer distances)
@@ -195,7 +203,7 @@ are recorded in [CHANGELOG.md](https://github.com/ChanceAroundYou/hbs_python/blo
 - `conformal_welding.py`: `ConformalWelding` / `get_conformal_welding`
 - `extension.py`: P1 finite-element harmonic extension, shared by both engines
 - `cache.py`: on-disk cache for the disk mesh and its FEM operator
-- `gauges.py`: I₂ anchor, the paper's M3+M4 closed form, and the `auto` policy
+- `gauges.py`: I₂ anchor, the paper's M3+M4 closed form, and the branch-free `c0` anchor
 - `weld_compare.py`: welding agreement metric (degree-1 circle homeomorphism)
 - `mesh.py`: `Mesh` / `DiskMesh` / `get_rect` / `get_unit_disk` / `get_unit_disk_in_rect`
 - `plotting.py`: optional plotting helpers (matplotlib imported lazily)

@@ -10,6 +10,34 @@ version newer than PyPI's latest describe work that is on `main` only.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.3.3] — 2026-10-30
+
+### Changed — **BREAKING**: the default gauge is now the branch-free `c0`
+
+- On 2.3.2 the signature default was `normalize="auto"`, which ran the `auto` policy:
+  I₂ when `|I₂|/Σ|term| ≥ 1e-2`, otherwise the paper's M3+M4. Here the default is a
+  single anchor, `c0` (see the `c0` subsection below), spelled either `"default"` or
+  `"c0"`, and `"auto"` is **no longer a valid value** — passing it raises
+  `ValueError`. (`"default"` did not exist as a value on 2.3.2 at all.)
+- What this changes for existing callers: `get_hbs(bound)` / `get_hbs_result(bound)`
+  / `get_conformal_welding(bound)` return a **different source-circle rotation** than
+  on 2.3.2, hence a different `μ`, welding and reconstruction. The shape is the same
+  up to that rotation; the numbers are not. Pin `normalize="i2"` or
+  `normalize="m34"` to reproduce 2.3.2 output exactly — both are bit-for-bit
+  unchanged — and `normalize="none"` never depended on the gauge.
+- Readings that are similarity-invariant do not move with the gauge: on
+  `img/example.png` all four 2.3.2 gauges score `fidelity_sim = 0.0174`, while the
+  phases differ (m34 176.66°, i2 −178.49°). Anything that compares **phases** or
+  `disk` vertex angles across a 2.3.2 → 2.3.3 boundary is comparing different
+  conventions.
+- Under `c0`, `GaugeChoice.kind` can be `"none"` / `phase=None` on rotationally
+  symmetric shapes, where 2.3.2's `m34` would still report `T mod π`. That is the
+  honest answer, not a regression.
+- Everything else in 2.3.3 is non-breaking: it changes accuracy and internals, not
+  the API.
+
 ### Changed — one spline fit per angular solve
 
 - `hbs._angular.direct.compute_direct_hbs` lost its private `sample_t` argument and
@@ -99,13 +127,15 @@ version newer than PyPI's latest describe work that is on `main` only.
   (`method`, `normalize`) and the opt-in `validate_reconstruction` as tables, the
   public API with signatures, the 60 796 / 62 512 face-count convention, a
   "facts that bite" section (the `1/rx²` scale law, seam rotation is not a gauge,
-  start-point invariance), and a measured block for `img/example.png` on 2.3.2.
+  start-point invariance), and a measured block for `img/example.png` on 2.3.3
+  (re-run for this release; the 2.3.2 block showed `gauge auto -> m34`, which no
+  longer exists).
 - The README's old claim that I₂ is "~1500× more sensitive to mesh discretization
   than M₃" is replaced by the number 2.3.0 actually measured: the two gauges
   converge at O(h²) with a constant **48–56×** error ratio, so refinement does not
   close the gap.
 - `example.ipynb` is rebuilt and re-executed end to end with a real kernel on
-  2.3.2 (15 cells, outputs embedded): boundary → forward solve with
+  2.3.3 (15 cells, outputs embedded): boundary → forward solve with
   engine/rung/gauge diagnostics → welding, `|μ|` and extension plots →
   reconstruction scored by `fidelity_sim` → `compare_engines` cross-check → the four
   `normalize` settings side by side plus `validate_reconstruction=True`.
@@ -118,11 +148,11 @@ version newer than PyPI's latest describe work that is on `main` only.
 
 ### Notes — what is actually on PyPI
 
-Checked against `https://pypi.org/pypi/hbs/json` on 2026-10-29: the published series is
-`… 1.1.0, 2.0.0, 2.0.1, 2.0.2, 2.3.1, 2.3.2` — **2.1.0, 2.2.0 and 2.3.0 were cut in git
-but never uploaded**; their behaviour changes reached PyPI users inside 2.3.1. So
-`pip install hbs` gives 2.3.2, and the reconstruction guard is installable rather than
-`main`-only.
+Checked against `https://pypi.org/pypi/hbs/json` on 2026-10-29: the published series
+was `… 1.1.0, 2.0.0, 2.0.1, 2.0.2, 2.3.1, 2.3.2` — **2.1.0, 2.2.0 and 2.3.0 were cut
+in git but never uploaded**; their behaviour changes reached PyPI users inside 2.3.1.
+As of 2.3.3, `pip install hbs` gives 2.3.3; the reconstruction guard (2.3.2) and the
+no-resampling angular solver (2.3.3) are installable rather than `main`-only.
 
 ## [2.3.2] — 2026-10-28
 
@@ -543,6 +573,7 @@ no smooth reparameterization that fixes it.
   `post_deepen` parameter was removed entirely.
 - Nothing else in the public API changed.
 
+[2.3.3]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.3.2...v2.3.3
 [2.3.2]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.2.0...v2.3.0
