@@ -180,7 +180,11 @@ def _solve_hbs(
     normalize: str,
 ) -> HBSResult:
     """一次完整的 焊接 → FEM 延拓 → μ → 规范，不含合法性门。"""
-    prepared = prepare_boundary(np.asarray(bound, float), circle_point_num)
+    # 角速度引擎自己按弧长拟合样条，保留原始输入点比先重采样更准；
+    # zipper 依赖均匀弧长采样避免 NaN。见 `prepare_boundary` 文档。
+    prepared = prepare_boundary(
+        np.asarray(bound, float), circle_point_num, resample=(method != "angular")
+    )
     welding_result = ENGINES[method](prepared, circle_point_num)
     disk, fem = resolve_disk(disk, density, circle_point_num)
     mu, field, welding, disk, gauge = build_hbs(

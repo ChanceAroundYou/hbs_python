@@ -127,12 +127,24 @@ def test_noisy_input_is_either_raw_or_reports_its_rung(sigma):
 
 
 def test_extreme_noise_fails_loudly_instead_of_switching_engine():
-    """σ=0.05 时角速度引擎在全部阶梯上失败——必须抛错，**不能**改用 zipper。
+    """σ=0.12 时角速度引擎在全部阶梯上失败——必须抛错，**不能**改用 zipper。
 
-    这是"互不替补"的直接可执行断言：若实现偷偷回退，这里会拿到一个结果。
+    这是"互不替补"的直接可执行断言：若实现偷偷退避，这里会拿到一个结果。
+
+    门槛从 σ=0.05 抬到 0.12：角速度路径不再把输入重采样到 `circle_point_num`
+    （200），噪声不再被降采样混叠，σ=0.05 会在最后一档 `resample500+s4` 成功。
+    那时它必须如实报 `rung`，见下面的 `test_noise_never_switches_engine`。
     """
     with pytest.raises(RuntimeError, match="均失败"):
-        get_hbs_result(_noisy(0.05), method="angular", **_cfg())
+        get_hbs_result(_noisy(0.12), method="angular", **_cfg())
+
+
+@pytest.mark.parametrize("sigma", [0.02, 0.05, 0.08])
+def test_noise_never_switches_engine(sigma):
+    """噪声边界要么失败，要么仍由角速度引擎解出——绝不静默换成 zipper。"""
+    result = get_hbs_result(_noisy(sigma), method="angular", **_cfg())
+    assert result.engine == "angular"
+    assert result.rung.startswith("raw") or result.rung.startswith("resample500")
 
 
 def test_ladder_is_per_engine(monkeypatch):

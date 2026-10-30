@@ -253,7 +253,10 @@ def get_conformal_welding(
     if normalize not in NORMALIZATIONS:
         raise ValueError(f"normalize must be one of {NORMALIZATIONS}, got {normalize!r}")
 
-    prepared = prepare_boundary(np.asarray(bound, float), resample_to)
+    # 与 `get_hbs` 保持同一份预处理：角速度引擎不重采样，zipper 重采样。
+    prepared = prepare_boundary(
+        np.asarray(bound, float), resample_to, resample=(method != "angular")
+    )
     welding = ENGINES[method](prepared, resample_to).welding
 
     if normalize != "none":

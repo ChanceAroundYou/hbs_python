@@ -72,27 +72,38 @@ class HBSResult:
     此时 `disk.circle_num` 与它报的值一致。"""
 
 
-def prepare_boundary(bound: np.ndarray, resample_to: int) -> np.ndarray:
-    """定向 → 几何锚点 → 弧长重采样。
+def prepare_boundary(
+    bound: np.ndarray, resample_to: int, *, resample: bool = True
+) -> np.ndarray:
+    """定向 → 几何锚点 →（可选）弧长重采样。
 
-    三步都必须在焊接之前完成，且**只能有一份实现**：`get_hbs` 与
+    前两步必须在焊接之前完成，且**只能有一份实现**：`get_hbs` 与
     `get_conformal_welding` 是两个公开入口，若其中一个把原始 `bound` 直接喂给
     引擎，同一形状在两个入口上会给出不同的 `(x, y)`。
 
     1. **定向**：调和延拓只在顺时针边界（signed area < 0）上产生 `|μ| < 1` 的场；
        逆时针输入会让 `|μ|` 全盘饱和到 1。图轮廓（cv2 在图像坐标下输出顺时针）
        与合成形状方向不一致，统一翻到顺时针。
-    2. **锚点**：`resample` 把弧长网格的原点钉在 `bound[0]`，输入起点一挪，
+    2. **锚点**：重采样把弧长网格的原点钉在 `bound[0]`，输入起点一挪，
        重采样的**点集**就变了（不是循环移位）。改用由点集几何决定的锚点后，
-       起点 roll 变成纯循环移位，μ 逐位不变。
-    3. **重采样**：zipper 对非均匀采样（cv2 轮廓、密集采样、顶点落坐标轴）产生
-       NaN，统一按弧长重采样规避。
+       起点 roll 变成纯循环移位，μ 逐位不变（不重采样时也成立）。
+    3. **重采样**（`resample=True`）：zipper 对非均匀采样（cv2 轮廓、密集采样、
+       顶点落坐标轴）产生 NaN，统一按弧长重采样规避。
+
+    **角速度引擎不需要第 3 步。** 它自己按弧长拟合周期样条、再在 `n` 个配点上
+    离散积分方程，输入点越密、样条携带的几何越多；先重采样到 `resample_to`
+    会把这份信息提前丢掉。实测 90 例配对：中位保真度 3.55e-4（不重采样）
+    vs 4.31e-4，胜负 55:35，覆盖率 92 vs 90——但差异不均匀（好 2× 以上 18 例、
+    差 2× 以上 15 例）。因此这一步由调用方按引擎显式选择；`resample=True`
+    保持旧行为。
     """
     from hbs.hbs import _canonical_start_index, _resample_boundary, _signed_area
 
     if _signed_area(bound) > 0:
         bound = bound[::-1]
     bound = np.roll(bound, -_canonical_start_index(bound), axis=0)
+    if not resample:
+        return bound
     return _resample_boundary(bound, resample_to)
 
 

@@ -137,7 +137,8 @@ def angular_mu_from_boundary(
     from hbs._engines import angular as _engine
 
     circle_num = disk.circle_num if disk is not None else 500
-    prepared = prepare_boundary(np.asarray(bound, float), circle_num)
+    # 与 `get_hbs(method="angular")` 一致：角速度引擎不重采样输入边界。
+    prepared = prepare_boundary(np.asarray(bound, float), circle_num, resample=False)
     result = _engine(prepared, circle_num)
     result.welding.linear_interp(circle_num)
     disk, fem = resolve_disk(disk, 0.01, circle_num)

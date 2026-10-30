@@ -10,6 +10,40 @@ version newer than PyPI's latest describe work that is on `main` only.
 
 ## [Unreleased]
 
+### Changed — the angular engine keeps the caller's input points (no arc-length resampling)
+
+- `prepare_boundary(bound, resample_to, *, resample=True)` gained the keyword.
+  `get_hbs(method="angular")`, `get_hbs_result(...)` and `get_conformal_welding(...)`
+  now pass `resample=False` for the angular engine; `method="zipper"` is unchanged.
+  The two public entry points still share one preprocessing step, verified to give
+  bit-identical `(init_x, init_y)`.
+- Rationale: the angular solver fits its own periodic arc-length spline and then
+  collocates the two logarithmic single-layer equations on `n` points, so denser
+  input carries more geometry. Resampling to `circle_point_num` first throws that
+  away. Measured on 100 shapes (1024-point input, `circle_point_num=500`,
+  `density=0.01`), 90 paired: median `fidelity_circ` 1.12e-4 (no resampling) vs
+  1.25e-4, wins **81:9**, coverage 92/100 vs 90/100; on the 54 synthetic shapes
+  **54:0**. The effect is consistent but small (~6% per-shape median), not an
+  order of magnitude.
+- Metric note: those numbers use the corrected `fidelity_circ` (true-area
+  normalization + continuous shift search). The earlier implementation reported
+  3.55e-4 vs 4.31e-4 and 55:35, with 18 shapes better and 15 worse by >2×; the
+  "worse" cases were an artifact of its 400-point shift grid and 8.2×-low
+  normalization. Under the corrected metric 3 of the 90 improve by >2× and none
+  regress by >2×. See the research-repo run
+  `runs/fidelity指标评估_2026-10-30/`.
+- zipper still resamples: it produces NaN on non-uniform sampling (cv2 contours,
+  dense sampling, vertices on the coordinate axes). The rung ladder is unchanged
+  and still falls back through `resample500 → +σ2 → +σ4`.
+- Gauge selection is unaffected: across 120 (shape, gauge) pairs the chosen
+  `GaugeChoice.kind` is identical with and without resampling; only the phase
+  value moves, by ~1e-2 rad, because μ itself changed.
+- Test fixture note: `test_hbs_200_angular_default.py`'s "extreme noise" threshold
+  moved from σ=0.05 to σ=0.12. At `circle_point_num=200` the old path downsampled
+  500 noisy points to 200, aliasing the noise; without resampling σ=0.05 now
+  succeeds at the last rung (`resample500+s4`). The "no silent engine switch"
+  contract is unchanged and now also asserts `engine == "angular"` for σ≤0.08.
+
 ### Added — branch-free source-circle gauge `normalize="c0"` (now the default)
 
 - `normalize="c0"` selects the source-circle rotation by the weight-1 functional
