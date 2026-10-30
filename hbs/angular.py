@@ -40,10 +40,11 @@ from hbs.mesh import DiskMesh
 
 
 class _SplineShape:
-    """最小 shape 适配器：只提供 `curve` / `derivative` / `sample_t`。
+    """最小 shape 适配器：只提供 `curve` / `derivative` / `points`。
 
     内部强制逆时针（`direct` 求解器要求正向参数化）；输入已被
     `hbs._pipeline.prepare_boundary` 统一翻成顺时针，所以这里会翻一次。
+    `points` 是翻转后的复向量，供极点搜索复用，避免重复拟合。
     """
 
     def __init__(self, bound: np.ndarray):
@@ -60,7 +61,7 @@ class _SplineShape:
         t = 2 * np.pi * s / s[-1]
         self._x = CubicSpline(t, np.r_[z.real, z.real[0]], bc_type="periodic")
         self._y = CubicSpline(t, np.r_[z.imag, z.imag[0]], bc_type="periodic")
-        self.sample_t = t[:-1]
+        self.points = z
 
     def curve(self, v):
         v = np.asarray(v, float)
@@ -71,9 +72,7 @@ class _SplineShape:
         return self._x(v, 1) + 1j * self._y(v, 1)
 
 
-def angular_welding(
-    bound: np.ndarray, circle_num: int = 500, n: int = 1024
-) -> dict:
+def angular_welding(bound: np.ndarray, circle_num: int = 500, n: int = 1024) -> dict:
     """求角速度焊接，返回 `ConformalWelding.from_angular` 需要的字典。
 
     :param `bound`: `n x 2` 光滑闭合曲线采样（会被 `_SplineShape` 翻成逆时针）
@@ -84,11 +83,15 @@ def angular_welding(
     """
     from hbs._angular import direct
 
-    result = direct.compute_direct_hbs_from_boundary(bound, n=n)
+    # 样条只在这里拟合一次：求解器的 `curve`/`derivative`、极点搜索与下游的
+    # `shape.curve(parameter)` 共用同一个 `_SplineShape`。
+    shape = _SplineShape(bound)
+    result = direct.compute_direct_hbs(
+        shape.curve, shape.derivative, n=n, pole=direct._interior_pole(shape.points)
+    )
     if result.min_raw_internal_density <= 0 or result.min_raw_external_density <= 0:
         raise RuntimeError("角速度基线需要原始内外角速度严格为正，不接受密度修剪")
 
-    shape = _SplineShape(bound)
     t = 2 * np.pi * np.arange(len(result.alpha)) / len(result.alpha)
     alpha = CubicSpline(
         np.r_[t, 2 * np.pi], np.r_[result.alpha - t, 0.0], bc_type="periodic"
@@ -145,10 +148,16 @@ def angular_mu_from_boundary(
     mu, field, welding, disk, gauge = build_hbs(
         result.welding, disk, fem, circle_num, normalize
     )
-    return mu, field, disk, None, {
-        "engine": result.engine,
-        "rung": result.rung,
-        "normalize": normalize,
-        "welding": welding,
-        "gauge": gauge,
-    }
+    return (
+        mu,
+        field,
+        disk,
+        None,
+        {
+            "engine": result.engine,
+            "rung": result.rung,
+            "normalize": normalize,
+            "welding": welding,
+            "gauge": gauge,
+        },
+    )

@@ -34,9 +34,9 @@ class DirectHBS:
     internal_equation_residual: float
     external_equation_residual: float
     timings: dict[str, float]
-    min_raw_internal_density: float = 0.
-    min_raw_external_density: float = 0.
-    density_regularization_mass: float = 0.
+    min_raw_internal_density: float = 0.0
+    min_raw_external_density: float = 0.0
+    density_regularization_mass: float = 0.0
 
     def boundary_map(self, theta: NDArray[np.float64]) -> NDArray[np.complex128]:
         """Evaluate H on the source unit circle at arbitrary angles."""
@@ -45,7 +45,9 @@ class DirectHBS:
         th = np.mod(theta, 2 * np.pi)
         return np.exp(1j * np.interp(th, beta, alpha))
 
-    def interior_map(self, z: NDArray[np.complex128], chunk: int = 1000) -> NDArray[np.complex128]:
+    def interior_map(
+        self, z: NDArray[np.complex128], chunk: int = 1000
+    ) -> NDArray[np.complex128]:
         """Direct boundary integral, without constructing a welding table."""
         z = np.asarray(z, complex).ravel()
         out = np.empty_like(z)
@@ -53,9 +55,11 @@ class DirectHBS:
         y = np.exp(1j * self.alpha)
         weight = (2 * np.pi / len(x)) * self.rho_external
         for start in range(0, len(z), chunk):
-            zz = z[start:start + chunk]
-            kernel = (1 - np.abs(zz[:, None]) ** 2) / np.abs(x[None, :] - zz[:, None]) ** 2
-            out[start:start + chunk] = kernel @ (y * weight)
+            zz = z[start : start + chunk]
+            kernel = (1 - np.abs(zz[:, None]) ** 2) / np.abs(
+                x[None, :] - zz[:, None]
+            ) ** 2
+            out[start : start + chunk] = kernel @ (y * weight)
         return out
 
     def moments(self, order: int) -> NDArray[np.complex128]:
@@ -65,12 +69,20 @@ class DirectHBS:
         weight = (2 * np.pi / len(phase)) * self.rho_external
         return np.exp(-1j * np.outer(m, self.beta)) @ (phase * weight)
 
-    def analytic_mu(self, z: NDArray[np.complex128], order: int = 80) -> NDArray[np.complex128]:
+    def analytic_mu(
+        self, z: NDArray[np.complex128], order: int = 80
+    ) -> NDArray[np.complex128]:
         z = np.asarray(z, complex)
         c = self.moments(order)
         m = np.arange(1, order + 1)
-        hz = (m[:, None] * c[order + m, None] * z.ravel()[None, :] ** (m[:, None] - 1)).sum(axis=0)
-        hc = (m[:, None] * c[order - m, None] * np.conj(z.ravel())[None, :] ** (m[:, None] - 1)).sum(axis=0)
+        hz = (
+            m[:, None] * c[order + m, None] * z.ravel()[None, :] ** (m[:, None] - 1)
+        ).sum(axis=0)
+        hc = (
+            m[:, None]
+            * c[order - m, None]
+            * np.conj(z.ravel())[None, :] ** (m[:, None] - 1)
+        ).sum(axis=0)
         return (hc / hz).reshape(z.shape)
 
 
@@ -88,11 +100,13 @@ def _angle_from_density(q: NDArray[np.float64]) -> NDArray[np.float64]:
         return spectral
     # Corner-like traces can have sharply peaked positive densities.  Their
     # truncated Fourier antiderivative may ring and lose monotonicity.
-    cumulative = np.r_[0., np.cumsum(np.pi * (q[:-1] + q[1:]) * (2 * np.pi / n))]
+    cumulative = np.r_[0.0, np.cumsum(np.pi * (q[:-1] + q[1:]) * (2 * np.pi / n))]
     return cumulative
 
 
-def _operator(gamma: NDArray[np.complex128], dgamma: NDArray[np.complex128]) -> NDArray[np.float64]:
+def _operator(
+    gamma: NDArray[np.complex128], dgamma: NDArray[np.complex128]
+) -> NDArray[np.float64]:
     n = len(gamma)
     if n % 2:
         raise ValueError("N must be even")
@@ -117,18 +131,17 @@ def compute_direct_hbs(
     curve: Callable[[NDArray[np.float64]], NDArray[np.complex128]],
     derivative: Callable[[NDArray[np.float64]], NDArray[np.complex128]],
     n: int = 480,
-    original_sample_count: int = 120,
     pole: complex = 0j,
-    sample_t: NDArray[np.float64] | None = None,
 ) -> DirectHBS:
-    """Solve for phases, preserving the original sample-mean inner gauge.
+    """Solve for the circle phases on the ``n``-point collocation grid.
 
     ``curve`` and ``derivative`` must parameterize a smooth CCW boundary on
-    [0,2*pi), with ``pole`` strictly inside.  The original sample points are
-    the equally spaced t-values used as input to the reference implementation.
+    [0,2*pi), with ``pole`` strictly inside.  Both logarithmic single-layer
+    equations are collocated at the ``n`` uniform nodes, which is also the grid
+    the M1 centering sum runs over.
     """
-    if n % 2 or (sample_t is None and n % original_sample_count):
-        raise ValueError("N must be even and a multiple of original_sample_count when sample_t is absent")
+    if n % 2:
+        raise ValueError("N must be even")
     tic = perf_counter()
     t = 2 * np.pi * np.arange(n) / n
     gamma = np.asarray(curve(t), complex)
@@ -153,36 +166,28 @@ def compute_direct_hbs(
     r_in = float(np.max(np.abs(system @ sol[:, 0] - rhs[:, 0])))
     r_out = float(np.max(np.abs(system @ sol[:, 1] - rhs[:, 1])))
     t_solve = perf_counter()
-    correction_mass = 0.
+    correction_mass = 0.0
     for q in (q_in, q_out):
         if q.min() < -1e-10 * q.max():
-            raise RuntimeError("negative harmonic-measure density beyond roundoff tolerance; refine or check boundary")
+            raise RuntimeError(
+                "negative harmonic-measure density beyond roundoff tolerance; refine or check boundary"
+            )
         if q.min() <= 0:
             old = q.copy()
             np.maximum(q, 1e-12 * q.max(), out=q)
-            q /= np.sum(q) * (2*np.pi/n)
-            correction_mass += float(np.sum(np.abs(q-old)) * (2*np.pi/n))
+            q /= np.sum(q) * (2 * np.pi / n)
+            correction_mass += float(np.sum(np.abs(q - old)) * (2 * np.pi / n))
     alpha0 = _angle_from_density(q_in)
     beta = _angle_from_density(q_out)
     if np.min(np.diff(beta)) <= 0 or beta[-1] >= 2 * np.pi:
         raise RuntimeError("exterior angle is not monotone; refine discretization")
-    if sample_t is None:
-        z_sample = np.exp(1j * alpha0[::n // original_sample_count])
-    else:
-        sample_t = np.asarray(sample_t, float)
-        sample_phase = np.interp(np.mod(sample_t, 2 * np.pi),
-                                 np.r_[t, 2 * np.pi], np.r_[alpha0, 2 * np.pi])
-        z_sample = np.exp(1j * sample_phase)
 
     # M1 规范化（论文式 5.11 / Algorithm 6.2）：Σ_k Φ1^{-1}(z_k) = 0。
     #
-    # 求和必须覆盖**全部 N 个离散点**，不是输入样本的子集。此前用 `z_sample`
-    # （输入点数，通常 500）而 α 定义在 n=1024 网格上，两者不一致：全网格上的
+    # 求和必须覆盖**全部 N 个离散点**，不是输入样本的子集。早期实现按输入点数
+    # （通常 500）取子集，而 α 定义在 n=1024 网格上，两者不一致：全网格上的
     # 残差实测 2.6e-3 ~ 2.8e-2，`|a|` 也随之偏大。论文 Algorithm 6.2 明确写的是
     # "p_i, i = 1,…,N" 且 N 与求解网格一致。
-    #
-    # `z_full` 用 α0（未居中的源角）在全部 N 点上取值；`z_sample` 仍保留给
-    # `alpha` 的起点与 `DirectHBS` 的语义（原始采样口径）。
     z_full = np.exp(1j * alpha0)
 
     def center_equations(v: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -205,13 +210,29 @@ def compute_direct_hbs(
         raise RuntimeError("inner angle is not monotone")
     done = perf_counter()
     return DirectHBS(
-        gamma, alpha, beta, q_in, q_out, a, r_in, r_out,
-        {"matrix": t_matrix - tic, "solve": t_solve - t_matrix, "gauge": done - t_solve, "total": done - tic},
-        min_raw_in, min_raw_out, correction_mass,
+        gamma,
+        alpha,
+        beta,
+        q_in,
+        q_out,
+        a,
+        r_in,
+        r_out,
+        {
+            "matrix": t_matrix - tic,
+            "solve": t_solve - t_matrix,
+            "gauge": done - t_solve,
+            "total": done - tic,
+        },
+        min_raw_in,
+        min_raw_out,
+        correction_mass,
     )
 
 
-def compute_direct_hbs_from_boundary(bound: NDArray[np.float64], n: int = 480) -> DirectHBS:
+def compute_direct_hbs_from_boundary(
+    bound: NDArray[np.float64], n: int = 480
+) -> DirectHBS:
     """Point-array API matching ``hbs.get_hbs`` for smooth Jordan curves.
 
     Fits a periodic cubic spline in normalized arclength.  Its derivative is
@@ -230,14 +251,14 @@ def compute_direct_hbs_from_boundary(bound: NDArray[np.float64], n: int = 480) -
     edges = np.abs(np.diff(np.r_[z, z[0]]))
     if edges.min() <= 1e-14:
         raise ValueError("repeated or degenerate boundary points")
-    s = np.r_[0., np.cumsum(edges)]
+    s = np.r_[0.0, np.cumsum(edges)]
     t = 2 * np.pi * s / s[-1]
     x = CubicSpline(t, np.r_[z.real, z.real[0]], bc_type="periodic")
     y = CubicSpline(t, np.r_[z.imag, z.imag[0]], bc_type="periodic")
     curve = lambda v: x(v) + 1j * y(v)
     derivative = lambda v: x(v, 1) + 1j * y(v, 1)
     pole = _interior_pole(z)
-    return compute_direct_hbs(curve, derivative, n=n, pole=pole, sample_t=t[:-1])
+    return compute_direct_hbs(curve, derivative, n=n, pole=pole)
 
 
 def _inside_polygon(point: complex, vertices: NDArray[np.complex128]) -> bool:
@@ -246,7 +267,7 @@ def _inside_polygon(point: complex, vertices: NDArray[np.complex128]) -> bool:
     x0, y0 = vertices.real, vertices.imag
     x1, y1 = np.roll(x0, -1), np.roll(y0, -1)
     cross = (y0 > y) != (y1 > y)
-    xhit = x0 + (y-y0) * (x1-x0) / np.where(y1 == y0, 1., y1-y0)
+    xhit = x0 + (y - y0) * (x1 - x0) / np.where(y1 == y0, 1.0, y1 - y0)
     return bool(np.count_nonzero(cross & (x < xhit)) % 2)
 
 
@@ -259,13 +280,19 @@ def _interior_pole(vertices: NDArray[np.complex128]) -> complex:
     ylo, yhi = float(vertices.imag.min()), float(vertices.imag.max())
     xs = np.linspace(xlo, xhi, 33)[1:-1]
     ys = np.linspace(ylo, yhi, 33)[1:-1]
-    candidates = [complex(x, y) for x in xs for y in ys
-                  if _inside_polygon(complex(x, y), vertices)]
+    candidates = [
+        complex(x, y)
+        for x in xs
+        for y in ys
+        if _inside_polygon(complex(x, y), vertices)
+    ]
     if not candidates:
         raise ValueError("could not locate an interior Green pole")
     starts = vertices
     edges = np.roll(vertices, -1) - vertices
+
     def clearance(p: complex) -> float:
-        t = np.clip(np.real((p-starts)*np.conj(edges))/np.abs(edges)**2, 0, 1)
-        return float(np.min(np.abs(p-(starts+t*edges))))
+        t = np.clip(np.real((p - starts) * np.conj(edges)) / np.abs(edges) ** 2, 0, 1)
+        return float(np.min(np.abs(p - (starts + t * edges))))
+
     return max(candidates, key=clearance)

@@ -10,6 +10,27 @@ version newer than PyPI's latest describe work that is on `main` only.
 
 ## [Unreleased]
 
+### Changed — one spline fit per angular solve
+
+- `hbs._angular.direct.compute_direct_hbs` lost its private `sample_t` argument and
+  the `n % len(sample_t) == 0` requirement that came with it.  The solver is now
+  purely `(curve, derivative, n, pole)` and collocates both logarithmic equations
+  on the `n` uniform nodes — the same grid the M1 centering sum runs over, which is
+  what the earlier `z_sample` subset logic got wrong (fixed separately).
+- `hbs.angular.angular_welding` used to fit the periodic arc-length spline twice:
+  once inside `compute_direct_hbs_from_boundary(bound)`, then again in its own
+  `_SplineShape(bound)` for the downstream `shape.curve(parameter)`.  Both fits used
+  the same nodes, so the numbers agreed, but the curve, its derivative and the
+  interior pole were computed twice.  Now a single `_SplineShape` feeds the solver
+  (`shape.curve`, `shape.derivative`, `_interior_pole(shape.points)`) and the
+  downstream evaluation.  `_SplineShape.sample_t` is replaced by `.points`.
+- Purely a refactor: 10 shapes × 6 output arrays (`init_x`, `init_y`, `parameter`,
+  `boundary`, `mu`, `field`) are bitwise identical before and after.  It also clears
+  the `F841` (unused `z_sample`) that `ruff` reported at `HEAD` for
+  `hbs/_angular/direct.py`.
+- Callers outside this repo that passed `sample_t=...` must drop it; there were no
+  in-repo callers left after the change.
+
 ### Changed — the angular engine keeps the caller's input points (no arc-length resampling)
 
 - `prepare_boundary(bound, resample_to, *, resample=True)` gained the keyword.

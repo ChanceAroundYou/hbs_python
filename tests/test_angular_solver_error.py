@@ -59,15 +59,10 @@ def _queries() -> np.ndarray:
     return np.r_[0.0, 0.85 * np.exp(2j * np.pi * k / 24)]
 
 
-def _sample_t(n: int) -> np.ndarray:
-    return np.arange(n) * 2.0 * np.pi / n
-
-
 def _solve_analytic(n: int = 1024):
-    pole = direct._interior_pole(_points(n)[:, 0] + 1j * _points(n)[:, 1])
-    return direct.compute_direct_hbs(
-        _curve, _derivative, n=n, pole=pole, sample_t=_sample_t(n)
-    )
+    pts = _points(n)
+    pole = direct._interior_pole(pts[:, 0] + 1j * pts[:, 1])
+    return direct.compute_direct_hbs(_curve, _derivative, n=n, pole=pole)
 
 
 def _relative(a: np.ndarray, ref: np.ndarray) -> float:
@@ -101,7 +96,6 @@ def test_circle_solver_is_exact():
         lambda s: 1j * np.exp(1j * s),
         n=n,
         pole=0j,
-        sample_t=t,
     )
     assert np.abs(result.alpha - t).max() < 1e-12
     rho = result.rho_internal
@@ -121,17 +115,7 @@ def test_equations_are_solved_to_roundoff():
 @pytest.mark.parametrize("n", [256, 512, 1024, 2048])
 def test_densities_stay_positive(n):
     """解析椭圆上原始内外密度严格为正，无需密度修剪。"""
-    result = (
-        _solve_analytic(n)
-        if n == 1024
-        else direct.compute_direct_hbs(
-            _curve,
-            _derivative,
-            n=n,
-            pole=direct._interior_pole(_points(n)[:, 0] + 1j * _points(n)[:, 1]),
-            sample_t=_sample_t(n),
-        )
-    )
+    result = _solve_analytic(n)
     assert result.min_raw_internal_density > 0
     assert result.min_raw_external_density > 0
     assert result.density_regularization_mass == 0.0
