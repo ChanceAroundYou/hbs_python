@@ -1,6 +1,6 @@
 """重建合法性门与一次性粗网格回退（`validate_reconstruction`）。
 
-来源：研究仓 1.2.0 vendored 角速度路径的 `_reconstruct_is_valid` 与
+来源：研究仓 1.2.0 vendored 调和测度路径的 `_reconstruct_is_valid` 与
 `(0.04, 512) → (0.04, 256)` 回退阶梯（2026-10-24 修复「回退结果未复检」后定稿）。
 2.3.2 移入库，默认关闭，语义保持不变：
 

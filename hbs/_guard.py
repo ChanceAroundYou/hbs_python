@@ -20,8 +20,8 @@
 门默认**关闭**：它要额外花掉一次完整重建（LSQC 求解），对正常形状是纯开销，
 且会改变「同一调用在默认网格上必定返回」的既有语义。
 
-来源：研究仓 1.2.0 vendored 角速度路径的 `_reconstruct_is_valid`
-（`src/hbs/angular.py`，2026-10-24 修复回退结果未复检的 bug），2.3.2 移入库。
+来源：研究仓 1.2.0 vendored 调和测度路径的 `_reconstruct_is_valid`
+（当时为 `src/hbs/angular.py`，2026-10-24 修复回退结果未复检的 bug），2.3.2 移入库。
 """
 
 from __future__ import annotations

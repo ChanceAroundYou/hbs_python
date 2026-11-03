@@ -1,6 +1,7 @@
-# angular 与 zipper 引擎对比 — 精度、速度、重建质量
+# harmonic_measure 与 zipper 引擎对比 — 精度、速度、重建质量
 
 > 文档日期：2026-10-29 · 数据全部在 `hbs` **2.3.3** 的代码上采集。
+> 当时引擎名为 `angular`；2026-11-03 起统一改称 `harmonic_measure`，读数未变。
 > 数据集：`形状100例_v1`（46 个真实 cv2 轮廓 + 54 个合成形状），输入 1024 点，
 > 盘网格默认 `(density=0.01, circle_point_num=500)`，另附 `(0.04, 256)` 与
 > 输入点数 256/500/1024/2048/8192 的扫描。
@@ -14,16 +15,16 @@
 > - §3–§6 与 §1 的耗时/通过率：`main` @ `68c8076`（2.3.2 之后的第一个未发布提交，
 >   已把 `normalize="default"` 从 `auto` 换成 `c0`；这些读数多数在
 >   `normalize="none"` 下取得，与规范无关）。
-> - §2 的 angular 读数：`main` @ `228cd5f`（angular 不再重采样输入）。同日之后的
+> - §2 的 harmonic_measure 读数：`main` @ `228cd5f`（harmonic_measure 不再重采样输入）。同日之后的
 >   `9841045` 只做去重，10 个形状 × 6 个输出数组逐位相同，不影响读数。
 > - 以上全部包含在 **2.3.3** 里，`hbs.__version__ >= "2.3.3"` 即可判定。
-> - 反方向：2.3.2 的 angular 会先把输入重采样到 `circle_point_num`，且
+> - 反方向：2.3.2 的 harmonic_measure 会先把输入重采样到 `circle_point_num`，且
 >   `normalize` 的默认值是 `"auto"`（2.3.2 里没有 `"default"` 这个取值）。探针：
 >
 >   ```python
 >   import inspect
 >   from hbs._pipeline import prepare_boundary
->   from hbs._angular import direct
+>   from hbs._harmonic_measure import direct
 >   "resample" in inspect.signature(prepare_boundary).parameters   # ≥228cd5f → True
 >   "sample_t" in inspect.getsource(direct)                       # ≥9841045 → False
 >   ```
@@ -36,20 +37,20 @@
 
 ## 结论摘要
 
-| 维度 | angular | zipper | 占优方 |
+| 维度 | harmonic_measure | zipper | 占优方 |
 |---|---|---|---|
 | C 合法通过率（1024 点输入） | 88/100 | **92/100** | zipper |
 | C 合法通过率（五个输入点数） | 88–90 | **91–92** | zipper |
 | 前向中位耗时 | 0.265 s | **0.184 s** | zipper（1.44×） |
 | 重建中位耗时 | 1.285 s | 1.304 s | 持平 |
-| 保真度（修好口径，89 个配对） | **1.01e-4** | 1.05e-3 | angular（中位数之比 10.4×，胜负 76:13） |
-| 同一指标，光滑合成形状（54 个） | **2.58e-5** | 9.71e-4 | angular（53:1；最差单形状 184×） |
+| 保真度（修好口径，89 个配对） | **1.01e-4** | 1.05e-3 | harmonic_measure（中位数之比 10.4×，胜负 76:13） |
+| 同一指标，光滑合成形状（54 个） | **2.58e-5** | 9.71e-4 | harmonic_measure（53:1；最差单形状 184×） |
 | 同一指标，真实轮廓（35 个配对） | 2.32e-2 | 2.16e-2 | 打平（23:12，中位数之比 1.07×） |
-| 重建边界曲率凸点强度 | **0.99** | 22.1 | angular（合成 54/54） |
-| 刚性不变性 `max_rel` | **1.8e-11** | 0.924 | angular |
+| 重建边界曲率凸点强度 | **0.99** | 22.1 | harmonic_measure（合成 54/54） |
+| 刚性不变性 `max_rel` | **1.8e-11** | 0.924 | harmonic_measure |
 | 起点不变性 `max_rel` | 4.0e-13 | 7.2e-11 | 都满足 |
 
-一句话：**angular 的优势集中在「成功时的质量」（精度、重建无伪影、刚性不变），
+一句话：**harmonic_measure 的优势集中在「成功时的质量」（精度、重建无伪影、刚性不变），
 速度和覆盖率上没有任何优势；zipper 反之。**
 
 `reconstruct_from_hbs` 在两条引擎间是同一段代码（`(0.04, 256)` 上 `max_abs = 0.0`），
@@ -61,24 +62,24 @@
 
 | 输入点数 | 256 | 500 | 1024 | 2048 | 8192 |
 |---|---|---|---|---|---|
-| angular C | 90 | 90 | 88 | 89 | 89 |
+| harmonic_measure C | 90 | 90 | 88 | 89 | 89 |
 | zipper C | 91 | 92 | 92 | 91 | 91 |
 
 失败原因完全不同：
 
-- **angular**（1024 点下 10 例）：`负的调和测度密度` / `角速度需要原始内外密度严格为正`。
+- **harmonic_measure**（1024 点下 10 例）：`负的调和测度密度` / `调和测度引擎要求原始内外密度严格为正`。
   这是引擎假设决定的——它要求光滑 Jordan 边界，尖角与像素阶梯轮廓会直接违反。
 - **zipper**（4 例）：`zipper normalization failed`（`real_Bone-3`、`real_Glas-3`、
   `real_hammer-3`、`real_spoon-1`）。
 
 **两个集合互补，并不重叠。**1024 点下 zipper 独有合法 6 例
 （`real_camel-3`、`real_cup-3`、`real_fly-3`、`real_guitar-3`、`real_lizzard-3`、
-`real_ray-3`），angular 独有 2 例（`real_Bone-3`、`real_hammer-3`）；
+`real_ray-3`），harmonic_measure 独有 2 例（`real_Bone-3`、`real_hammer-3`）；
 两者都做不出 6 例（`real_Glas-3`、`real_crown-3`、`real_device6-3`、
 `real_elephant-3`、`real_fork-3`、`real_spoon-1`，**全部是真实轮廓**）。
 
-另有两点与失败相邻的代价：angular 内部降级重试触发 31/453（6.8%），zipper 1/480（0.2%）；
-给定前向成功，重建合法率 angular 88/90（97.8%）高于 zipper 92/96（95.8%）。
+另有两点与失败相邻的代价：harmonic_measure 内部降级重试触发 31/453（6.8%），zipper 1/480（0.2%）；
+给定前向成功，重建合法率 harmonic_measure 88/90（97.8%）高于 zipper 92/96（95.8%）。
 
 ## 2. 精度
 
@@ -97,17 +98,17 @@
 >
 > 本节配对在 `normalize="none"`、输入 1024 点、盘网格 `(0.01, 500)` 下重新求解，
 > 配对定义为两条引擎都前向成功（89 例），比 §1 的 C 合法交集（86 例）略宽；
-> angular 一侧是不重采样输入的当前实现。旧口径的读数同批留档对照。
+> harmonic_measure 一侧是不重采样输入的当前实现。旧口径的读数同批留档对照。
 
-| 子集 | n | angular 中位 | zipper 中位 | 胜负 | 差异 >2× |
+| 子集 | n | harmonic_measure 中位 | zipper 中位 | 胜负 | 差异 >2× |
 |---|---|---|---|---|---|
-| 全部 | 89 | **1.01e-4** | 1.05e-3 | **76:13** | angular 优 54，zipper 优 1 |
-| `real_*` | 35 | 2.32e-2 | 2.16e-2 | 23:12 | angular 优 8，zipper 优 1 |
+| 全部 | 89 | **1.01e-4** | 1.05e-3 | **76:13** | harmonic_measure 优 54，zipper 优 1 |
+| `real_*` | 35 | 2.32e-2 | 2.16e-2 | 23:12 | harmonic_measure 优 8，zipper 优 1 |
 | 合成 | 54 | **2.58e-5** | 9.71e-4 | **53:1** | — |
 
 同一批配对、旧口径留档：
 
-| 子集 | n | angular 中位 | zipper 中位 | 胜负 |
+| 子集 | n | harmonic_measure 中位 | zipper 中位 | 胜负 |
 |---|---|---|---|---|
 | 全部 | 89 | 3.44e-4 | 4.57e-4 | 53:36 |
 | `real_*` | 35 | 2.61e-3 | 2.51e-3 | 19:16 |
@@ -115,9 +116,9 @@
 
 **结论变化很大**：旧口径读作「中位数之比 1.3×、胜负接近」，新口径是
 **中位数之比 10.4×、逐形状比值中位 0.109（约 9 倍）、胜负 76:13**；
-合成形状上 53:1。**24 个形状从「zipper 更好」翻成「angular 更好」**：
+合成形状上 53:1。**24 个形状从「zipper 更好」翻成「harmonic_measure 更好」**：
 
-| 形状 | 旧口径（angular / zipper） | 新口径（angular / zipper） |
+| 形状 | 旧口径（harmonic_measure / zipper） | 新口径（harmonic_measure / zipper） |
 |---|---|---|
 | `poly8` | 1.23e-4 / 1.18e-4 | **1.11e-5 / 9.22e-4** |
 | `skewed_three_dents` | 3.44e-4 / 3.02e-4 | **3.15e-5 / 1.05e-3** |
@@ -126,15 +127,15 @@
 | `real_watch-3` | 8.61e-4 / 1.33e-4 | **5.54e-5 / 1.20e-3** |
 
 极端值（新口径）：zipper 最差 `asymmetric_oval` **184×**、`radial_a01` 166×、
-`mixed_dents` 153×、`bent_030` 151×；angular 最差 `real_fish-3` **2.1×**
+`mixed_dents` 153×、`bent_030` 151×；harmonic_measure 最差 `real_fish-3` **2.1×**
 （3.52e-2 vs 1.68e-2），其余真实形状 ≤1.4×。
 
-**规律没变，幅度差一个数量级：形状越光滑 angular 越准；真实轮廓上打平**
-（真实形状的中位数之比 1.07×，zipper 略优，但胜场 23:12 偏向 angular）。
+**规律没变，幅度差一个数量级：形状越光滑 harmonic_measure 越准；真实轮廓上打平**
+（真实形状的中位数之比 1.07×，zipper 略优，但胜场 23:12 偏向 harmonic_measure）。
 
 ## 3. 速度
 
-| 阶段 | angular | zipper |
+| 阶段 | harmonic_measure | zipper |
 |---|---|---|
 | 前向 `(0.01, 500)` | 0.265 s | 0.184 s |
 | 重建 `(0.01, 500)` | 1.285 s | 1.304 s |
@@ -143,13 +144,13 @@
 | 重建 `(0.04, 256)` | 1.283 s | 1.293 s |
 
 前向 zipper 快 1.44×；重建共用同一求解器，持平；合计 zipper 快 4%。
-angular 失败时还要跑满 4 级内部降级，实际开销更高。
+harmonic_measure 失败时还要跑满 4 级内部降级，实际开销更高。
 
 ## 4. 重建边界质量：zipper 的固定伪影
 
 **最干净的判据是完美圆**——真值 μ ≡ 0，理想重建就是单位圆：
 
-| | angular | zipper |
+| | harmonic_measure | zipper |
 |---|---|---|
 | `max\|μ\|` | 1.15e-4 | **2.92e-1** |
 | 重建半径误差 max | 4.03e-6 | **9.00e-3** |
@@ -169,14 +170,14 @@ zipper 的误差**集中在同一处**：源圆 500 点里的 idx 322（0.644）
 
 群体统计（重建曲率凸点强度 = `max|κ − κ_中位滤波| / mean|κ_ref|`）：
 
-| 子集 | angular 中位 | zipper 中位 | zipper 更凸 |
+| 子集 | harmonic_measure 中位 | zipper 中位 | zipper 更凸 |
 |---|---|---|---|
 | 全部 88 | 2.69 | 20.4 | 79/88，比值中位 8.0× |
 | 合成 54 | 0.99 | 22.1 | **54/54**，中位 22×，最大 356×（`radial_a01`） |
 | 真实 34 | 7.81 | 15.5 | 25/34，中位 2.0× |
 
-真实轮廓上差距被输入自身的粗糙度淹没（曲率高频能量 angular 0.139 vs zipper 0.133，
-angular 反而略高）；伪影仍然存在，只是不再是主要误差。
+真实轮廓上差距被输入自身的粗糙度淹没（曲率高频能量 harmonic_measure 0.139 vs zipper 0.133，
+harmonic_measure 反而略高）；伪影仍然存在，只是不再是主要误差。
 
 **需要澄清的一点**：这个伪影**不是**高 |μ| 退化的原因。凸点强度与 `max|μ|` 的
 Pearson 相关只有 −0.08，按 |μ| 分箱基本平坦；而保真度随 |μ| 变差是两条引擎共有的
@@ -187,7 +188,7 @@ Pearson 相关只有 −0.08，按 |μ| 分箱基本平坦；而保真度随 |μ
 
 输入起点 roll 与刚体变换后，μ 的相对变化：
 
-| | angular | zipper |
+| | harmonic_measure | zipper |
 |---|---|---|
 | 起点 `max_rel` 最大 | 4.0e-13 | 7.2e-11 |
 | 刚体 `max_rel` 中位 | 2.5e-12 | 1.9e-10 |
@@ -195,7 +196,7 @@ Pearson 相关只有 −0.08，按 |μ| 分箱基本平坦；而保真度随 |μ
 | 刚体 `max_rel > 1e-6` 的形状数 | 0 | 8 |
 
 两者对起点 roll 都严格不变（`prepare_boundary` 的几何锚点钉住了这一点）。
-刚体不变性上 angular 实质是精确的；zipper 有 8 个形状超过 1e-6，
+刚体不变性上 harmonic_measure 实质是精确的；zipper 有 8 个形状超过 1e-6，
 最差 `real_device6-3` 达到 **0.924**——同一形状平移/旋转后 μ 几乎全变。
 这是可复现性问题，不是精度问题。
 
@@ -206,7 +207,7 @@ import numpy as np, hbs
 
 t = np.linspace(0, 2 * np.pi, 1024, endpoint=False)
 b = np.stack([np.cos(t), np.sin(t)], axis=1)
-for m in ("angular", "zipper"):
+for m in ("harmonic_measure", "zipper"):
     r = hbs.get_hbs_result(b, density=0.01, circle_point_num=500,
                            method=m, normalize="none")
     rec = np.asarray(hbs.reconstruct_from_hbs(r.mu, r.disk)[0], float)
@@ -217,7 +218,7 @@ for m in ("angular", "zipper"):
 输出：
 
 ```
-angular 0.0001152 4.03e-06 447
+harmonic_measure 0.0001152 4.03e-06 447
 zipper  0.2919    9.00e-03 322
 ```
 
@@ -232,19 +233,19 @@ zipper  0.2919    9.00e-03 322
 
 | 首发 | 兜底条件 | 256 | 500 | 1024 | 2048 | 8192 |
 |---|---|---|---|---|---|---|
-| 仅 angular | — | 90 | 90 | 88 | 89 | 89 |
+| 仅 harmonic_measure | — | 90 | 90 | 88 | 89 | 89 |
 | 仅 zipper | — | 91 | 92 | 92 | 91 | 91 |
-| angular | 仅捕获异常 | 95 | 95 | 93 | 94 | 94 |
+| harmonic_measure | 仅捕获异常 | 95 | 95 | 93 | 94 | 94 |
 | zipper | 仅捕获异常 | 94 | 95 | 94 | 93 | 93 |
-| angular | 异常 **或 C 不合法** | 95 | 96 | 94 | 94 | 94 |
+| harmonic_measure | 异常 **或 C 不合法** | 95 | 96 | 94 | 94 | 94 |
 | zipper | 异常 **或 C 不合法** | 95 | 96 | 94 | 94 | 94 |
 | （并集上限） | — | 95 | 96 | 94 | 94 | 94 |
 
-- **兜底条件必须包含「重建不合法」**，不能只捕获异常。只捕获异常时，angular 首发漏掉
+- **兜底条件必须包含「重建不合法」**，不能只捕获异常。只捕获异常时，harmonic_measure 首发漏掉
   `real_camel-3`（前向成功但重建自交），zipper 首发漏掉 `real_crown-3` / `real_deer-3`。
 - 加上 C 门之后**顺序不敏感**，两种顺序都达到并集上限。
 - 选择依据只剩质量 vs 速度：
-  - **追求精度、输入光滑** → angular 首发（光滑形状最高 184× 的保真度优势、无凸点、
+  - **追求精度、输入光滑** → harmonic_measure 首发（光滑形状最高 184× 的保真度优势、无凸点、
     对刚体变换严格不变）。
   - **追求覆盖率/速度、输入为扫描或图像轮廓** → zipper 首发。
 - 无论选哪种，都应把实际引擎与 `HBSResult.rung` 记入结果；`rung != "raw"`

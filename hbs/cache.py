@@ -80,7 +80,7 @@ def _fem_operator(disk):
     """弱拉普拉斯块 `(A, B)`。
 
     `A`` = 内部节点 × 内部节点，`B` = 内部节点 × 边界节点。做成这里的一份是为了
-    缓存层不依赖 `_angular`（zipper 也要用同一个 FEM 延拓）。
+    缓存层不依赖 `_harmonic_measure`（zipper 也要用同一个 FEM 延拓）。
     """
     from scipy.sparse import diags
 

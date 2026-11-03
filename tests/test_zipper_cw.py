@@ -23,7 +23,7 @@ def test_get_conformal_welding_stable():
     # get_conformal_welding 需要 (n,2) 实边界（内部转复数）
     t = np.linspace(0, 2 * np.pi, 200, endpoint=False)
     b = np.stack([1.2 * np.cos(t), np.sin(t)], 1)[::-1]
-    # 2.1.0 起默认 method="angular"（与 get_hbs 一致），x/y 在单位圆上。
+    # 2.1.0 起默认 method="harmonic_measure"（与 get_hbs 一致），x/y 在单位圆上。
     cw = get_conformal_welding(b)
     assert cw.x.shape[0] == 500
     assert np.all(np.abs(cw.x) <= 1 + 1e-9)

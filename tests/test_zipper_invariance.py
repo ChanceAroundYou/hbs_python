@@ -92,7 +92,7 @@ def test_rotation_scale_translation_to_fp_precision(disk, name):
     """旋转 / 缩放 / 平移下 μ 只剩浮点噪声（< 1e-8 相对）。
 
     zipper 的焊接对应 `(x, y)` 本身与形状的刚体变换无关（实测差 ~1e-13），所以
-    这里在**固定盘**上比较 —— 与角速度路径不同，不需要同步旋转网格。
+    这里在**固定盘**上比较 —— 与调和测度路径不同，不需要同步旋转网格。
     """
     b = _boundary(name)
     mu0 = _mu(b, disk)
@@ -125,7 +125,7 @@ def test_two_public_entries_agree(name):
     额外旋转源角，那是 `get_hbs` 后处理的一步，不在焊接求解里。
     """
     b = _boundary(name)
-    # 2.2.0：两条路径的焊接都来自角速度解（`angular_welding`），所以同一
+    # 2.2.0：两条路径的焊接都来自调和测度解（`harmonic_measure_welding`），所以同一
     # `normalize` 下 `(x, y)` 逐位相同。`get_conformal_welding` 的默认
     # `normalize` 是 "i2"（与 `get_hbs` 一致），这里显式对齐到 "none" 比较
     # 求解本身的输出。

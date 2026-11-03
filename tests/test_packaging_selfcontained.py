@@ -1,12 +1,12 @@
 """打包自足性测试：wheel 必须能在没有研究工作区的前提下独立工作。
 
-背景（2.0.0 之前的真实缺陷）：`hbs.angular` 曾用
+背景（2.0.0 之前的真实缺陷）：`hbs.harmonic_measure` 曾用
 `import direct_boundary_hbs` / `from joint_hbs_optimizer import ...` 引两个只存在于
 研究仓库 `src/` 下的模块。源码树里因为这些模块恰好可导入而始终绿，装成 wheel
 后默认路径直接 `ModuleNotFoundError`。本测试锁住三条：
 
 1. 包内**不许**出现指向研究仓库顶层模块的 import；
-2. 引擎确实随包 vendored（`hbs._angular.direct`）；
+2. 引擎确实随包 vendored（`hbs._harmonic_measure.direct`）；
 3. 在子进程里用 `sys.path` 屏蔽研究仓库后，默认路径仍能跑通。
 """
 
@@ -44,7 +44,7 @@ def test_no_imports_from_research_repo():
     assert not offenders, "包内引用了研究仓库顶层模块：\n" + "\n".join(offenders)
 
 
-@pytest.mark.parametrize("mod", ["hbs._angular.direct"])
+@pytest.mark.parametrize("mod", ["hbs._harmonic_measure.direct"])
 def test_engine_is_vendored(mod):
     import importlib
 
@@ -94,7 +94,7 @@ def test_import_emits_no_warnings():
 
 
 def test_default_path_works_with_research_repo_hidden():
-    """子进程里只给出本包路径（屏蔽研究仓库）后，默认 angular 路径仍须端到端跑通。
+    """子进程里只给出本包路径（屏蔽研究仓库）后，默认 harmonic_measure 路径仍须端到端跑通。
 
     `PYTHONPATH` 只指向 `PKG.parent`，所以子进程里 `hbs` 解析到本仓库源码，而研究
     仓库的 `src/`（`direct_boundary_hbs` 等所在处）不在搜索路径上 —— 这正是
@@ -111,7 +111,7 @@ def test_default_path_works_with_research_repo_hidden():
         t = np.linspace(0, 2 * np.pi, 500, endpoint=False)
         bound = np.stack([1.2 * np.cos(t), np.sin(t)], 1)
         mu, field, cw, disk = hbs.get_hbs(bound)
-        assert cw is not None, "2.2.0：两条路径都带焊接（统一从角速度求）"
+        assert cw is not None, "2.2.0：两条路径都带焊接（统一从调和测度求）"
         assert mu.shape == (disk.face_num,)
         rec, *_ = hbs.reconstruct_from_hbs(mu, disk)
         assert rec.shape == (disk.circle_num, 2)

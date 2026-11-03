@@ -2,7 +2,7 @@
 
 由平面形状边界求调和 Beltrami 签名（复系数，定义在三角面心），并从中重建形状。
 """
-__version__ = "2.3.4"
+__version__ = "2.4.0"
 
 from ._pipeline import (
     DEFAULT_NORMALIZE,
@@ -16,6 +16,22 @@ from .gauges import GAUGES, GaugeChoice, select_gauge
 from .hbs import get_hbs, get_hbs_result, reconstruct_from_hbs
 from .mesh import DiskMesh, Mesh, get_rect, get_unit_disk, get_unit_disk_in_rect
 from .qc import get_beltrami_coefficient, lsqc_solver, mu_chop
+from .volumetric import (
+    RevolutionChart,
+    SpheroidChart,
+    TetraMesh,
+    ball_mobius,
+    ball_tetra_mesh,
+    boundary_vertex_k,
+    build_tetramesh,
+    deformation_data,
+    distortion_metrics,
+    element_k,
+    mobius_scale,
+    solve_fixed_trace,
+    solve_softmax,
+    solve_softmax_continuation,
+)
 from .weld_compare import (
     WeldingAgreement,
     WeldingCurve,
@@ -24,7 +40,7 @@ from .weld_compare import (
     welding_curve,
 )
 
-from . import conformal_welding, gauges, mesh, qc, utils
+from . import conformal_welding, gauges, mesh, qc, utils, volumetric
 
 __all__ = [
     "__version__",
@@ -60,4 +76,19 @@ __all__ = [
     "get_rect",
     "get_unit_disk",
     "get_unit_disk_in_rect",
+    # 三维固定迹原型（离散，非连续极值）
+    "TetraMesh",
+    "build_tetramesh",
+    "ball_tetra_mesh",
+    "SpheroidChart",
+    "RevolutionChart",
+    "ball_mobius",
+    "mobius_scale",
+    "deformation_data",
+    "distortion_metrics",
+    "element_k",
+    "boundary_vertex_k",
+    "solve_fixed_trace",
+    "solve_softmax",
+    "solve_softmax_continuation",
 ]

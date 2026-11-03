@@ -29,9 +29,9 @@ from functools import cache
 
 import numpy as np
 
-from hbs._angular import direct
+from hbs._harmonic_measure import direct
 from hbs._pipeline import build_hbs, prepare_boundary, resolve_disk
-from hbs.angular import angular_welding
+from hbs.harmonic_measure import harmonic_measure_welding
 from hbs.conformal_welding import ConformalWelding
 
 CIRCLE_NUM = 500
@@ -52,8 +52,8 @@ def _chain(kind: str):
     bound = _boundary(kind)
     prepared = prepare_boundary(bound, CIRCLE_NUM, resample=False)
     solver = direct.compute_direct_hbs_from_boundary(prepared, n=SOLVER_N)
-    welding = ConformalWelding.from_angular(
-        angular_welding(prepared, circle_num=CIRCLE_NUM, n=SOLVER_N)
+    welding = ConformalWelding.from_harmonic_measure(
+        harmonic_measure_welding(prepared, circle_num=CIRCLE_NUM, n=SOLVER_N)
     )
     # 引擎侧的取样步骤（`_engines._result` 做的事）：管线本身不再插值。
     welding.linear_interp(CIRCLE_NUM)

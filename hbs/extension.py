@@ -12,7 +12,7 @@ P1 有限元离散后就是稀疏线性系统 `A h = -B y`，其中 `A` 是内�
 
 ## 为什么统一到 FEM
 
-2.1.0 的 zipper 用 `utils.poisson.integral`（稠密 Poisson 核求积），angular 用
+2.1.0 的 zipper 用 `utils.poisson.integral`（稠密 Poisson 核求积），harmonic_measure 用
 P1 FEM。两者都是调和延拓，但：
 
 - 耗时差 **54–63×**（密网格 60796 面：473 ms vs 7.6 ms），因为前者是

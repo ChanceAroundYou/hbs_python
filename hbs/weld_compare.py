@@ -2,7 +2,7 @@
 
 ## 为什么需要它
 
-`zipper` 与 `angular` 两条前向路径各自给出一个共形焊接 `f: S¹ → S¹`。
+`zipper` 与 `harmonic_measure` 两条前向路径各自给出一个共形焊接 `f: S¹ → S¹`。
 两者应当在**一个源圆旋转**下相同（论文 §5.3/5.4：M1 与 M2 各固定一个 Möbius
 转动自由度，剩下的目标圆旋转由 I₂ 规范吸收）。要判断"两个引擎是否一致"，
 必须先扣掉这个旋转，否则会把纯规范自由度误报成映射差异。
@@ -164,7 +164,7 @@ def welding_curve(cw) -> WeldingCurve:
     """从 `ConformalWelding` 构造 `WeldingCurve`。
 
     要求 `x`、`y` 都在单位圆上且按同一个物理边界点配对（`zipper_welding_prepared`
-    与 `ConformalWelding.from_angular` 都满足）。源角按升序排列，目标角用
+    与 `ConformalWelding.from_harmonic_measure` 都满足）。源角按升序排列，目标角用
     `unwrap` 展开；若整体绕向相反则翻转，保证次数为 `+1`。
     """
     a = np.mod(np.asarray(cw.init_x_angle, float), 2 * np.pi)

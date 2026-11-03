@@ -349,8 +349,8 @@ def test_rotate_disk_commutes_with_the_functionals():
 
 # --- 兼容入口与端到端接线 ---
 
-def test_angular_compat_wrapper_returns_the_gauge_choice(disk):
-    """`angular_mu_from_boundary` 是旧签名入口；它必须真的走新管线并交出 gauge。
+def test_harmonic_measure_compat_wrapper_returns_the_gauge_choice(disk):
+    """`harmonic_measure_mu_from_boundary` 是便捷封装入口；它必须真的走新管线并交出 gauge。
 
     这条路径在 2.3.0 差点漏掉：`build_hbs` 的返回从 4 元组变成 5 元组时，
     这个包装器仍在按 4 元组解包，只有直接调用才会暴露（测试套件里没有别的
@@ -360,7 +360,7 @@ def test_angular_compat_wrapper_returns_the_gauge_choice(disk):
     （见 `test_c0_reports_undetermined_on_centrally_symmetric_field`），
     用椭圆测“每套规范都生效”会测到别的东西。
     """
-    import hbs.angular as angular
+    import hbs.harmonic_measure as harmonic_measure
 
     t = np.linspace(0, 2 * np.pi, 500, endpoint=False)
     bound = np.stack(
@@ -369,12 +369,12 @@ def test_angular_compat_wrapper_returns_the_gauge_choice(disk):
     )
 
     for kind in gauges.GAUGES:
-        mu, _field, used, _res, stats = angular.angular_mu_from_boundary(
+        mu, _field, used, _res, stats = harmonic_measure.harmonic_measure_mu_from_boundary(
             bound, disk=disk, normalize=kind
         )
         assert mu.shape == (used.face_num,)
         assert stats["gauge"].kind == kind
-        assert stats["engine"] == "angular"
+        assert stats["engine"] == "harmonic_measure"
 
 
 def test_pipeline_result_carries_the_same_choice_as_the_public_entry():

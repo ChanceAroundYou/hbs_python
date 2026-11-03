@@ -10,6 +10,62 @@ version newer than PyPI's latest describe work that is on `main` only.
 
 ## [Unreleased]
 
+### Changed — BREAKING: `angular` engine renamed to `harmonic_measure`
+
+- `get_hbs(..., method=...)` and `get_conformal_welding(...)`: `"angular"` becomes
+  `"harmonic_measure"` (still the default). No `"angular"` alias is kept.
+- Modules: `hbs/angular.py` → `hbs/harmonic_measure.py`;
+  `hbs/_angular/` → `hbs/_harmonic_measure/`.
+- API: `angular_welding` → `harmonic_measure_welding`;
+  `angular_mu_from_boundary` → `harmonic_measure_mu_from_boundary`;
+  `ConformalWelding.from_angular` → `ConformalWelding.from_harmonic_measure`.
+- The engine registry key and `result.engine` value are now `"harmonic_measure"`.
+- Chinese prose says 调和测度 instead of 角速度. Entries below this one describe
+  releases where the engine was still named `angular`; that wording is historical
+  and is intentionally not rewritten.
+- Version numbering is left to the release that ships this rename: the working tree
+  also carries the unreleased 2.4.0 `hbs.volumetric` change, so `hbs.__version__`
+  was not bumped here.
+
+## [2.4.0] — 2026-11-03
+
+### Added — `hbs.volumetric`: 三维固定边界迹的离散拟共形原型
+
+New subpackage, moved out of the research repository (`HBS-research/src/volumetric_tbs.py`
+plus the `softmax_solve.py` / `ProfileChart` code that lived in run directories):
+
+- `TetraMesh` (`points`, `tetra`, `P1 gradients`, `volume`, `interior_count`, optional
+  `trace`/`meta`) with `build_tetramesh` and the deterministic `ball_tetra_mesh`.
+  Interior vertices are ordered first, boundary last; the class still supports the
+  research repo's dictionary-style access (`mesh["stations"]`) through `extra`.
+- Boundary charts: `SpheroidChart` (ellipsoid, optional target-side ball Möbius map;
+  area-centering on a fixed 64×128 quadrature) and `RevolutionChart` (any smooth
+  surface of revolution given by `radius(theta)`), plus `ball_mobius` / `mobius_scale`.
+- Distortion: `deformation_data`, `distortion_metrics`, `element_k`,
+  `boundary_vertex_k`. For a P1 tetrahedron with `A = DG`, `K = max(s1³/|J|, |J|/s3³)`.
+- Solvers: `solve_fixed_trace` (SLSQP on the epigraph form, dense constraint Jacobian,
+  optional `bounds_delta` box constraint) and `solve_softmax` /
+  `solve_softmax_continuation` (log-sum-exp smoothing, L-BFGS-B, one gradient column).
+- Diagnostics: `audit_discrete_gradient`, `audit_polyhedral_boundary`.
+
+What it is and is not: this is the **discrete** prototype of the candidate 3D signature
+discussed in `HBS-research/研究/三维TBS.md` — P1 piecewise-affine maps with a fixed
+boundary trace, minimizing a local maximal distortion. It is **not** a continuum
+extremal solver, does not claim uniqueness, global optimality or a continuous `K_min`,
+and `K` is a geometric distortion (no material parameters), **not** stress/strain.
+`solve_fixed_trace` returns the last SLSQP iterate; it is not guaranteed feasible —
+check `minimum_constraint` / `success`, or keep the best feasible iterate in `callback`.
+
+Migration is numerically inert: on the same mesh, initial values and iteration budget
+the old `src/volumetric_tbs.py` and the new package give bitwise identical
+`max_K` / `min_J` / `values` (recorded in `HBS-research/研究/研究日志.md`, 2026-11-03).
+The only behavioral changes are the new opt-in `bounds_delta` and dropping the
+`disp=False` option that L-BFGS-B does not accept (it used to emit
+`OptimizeWarning: Unknown solver options: disp`).
+
+Dependencies are unchanged (`numpy`, `scipy`); nothing imports matplotlib.
+`tests/test_volumetric_{mesh,metrics,chart,solve}.py` pin the new module (37 tests).
+
 ## [2.3.4] — 2026-10-30
 
 ### Changed — internal: engines hand over boundary values, the shared backend no longer resamples

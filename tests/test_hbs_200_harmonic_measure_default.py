@@ -80,7 +80,7 @@ def test_result_reports_engine_and_rung():
 def test_engines_produce_different_weldings():
     """两个引擎必须真的不同：若 `method` 只影响后备，这里会逐位相同。"""
     z = get_hbs_result(_oval(), method="zipper", **_cfg())
-    a = get_hbs_result(_oval(), method="angular", **_cfg())
+    a = get_hbs_result(_oval(), method="harmonic_measure", **_cfg())
     assert not np.array_equal(z.welding.init_x, a.welding.init_x)
 
 
@@ -90,22 +90,22 @@ def test_engines_agree_after_source_rotation():
 
     disk, fem = cache.load_unit_disk(DENSITY, CIRCLE)
     z = get_hbs_result(_oval(), method="zipper", normalize="none", disk=disk, **_cfg())
-    a = get_hbs_result(_oval(), method="angular", normalize="none", disk=disk, **_cfg())
+    a = get_hbs_result(_oval(), method="harmonic_measure", normalize="none", disk=disk, **_cfg())
     agreement = compare_engines(z.welding, a.welding, disk, fem, CIRCLE)
     assert np.degrees(agreement.welding_rms) < 1.0
     assert agreement.mu_rms < 0.1, "μ 的 rms 差异应远小于 max（后者由边界层主导）"
 
 
 def test_engines_are_not_fallbacks_for_each_other(monkeypatch):
-    """角速度引擎全部失败时，`method="angular"` 必须抛错，不能静默改用 zipper。"""
+    """调和测度引擎全部失败时，`method="harmonic_measure"` 必须抛错，不能静默改用 zipper。"""
     import hbs._engines as engines
 
     def boom(bound, circle_num):
         raise RuntimeError("engine unavailable")
 
-    monkeypatch.setitem(engines.ENGINES, "angular", boom)
+    monkeypatch.setitem(engines.ENGINES, "harmonic_measure", boom)
     with pytest.raises(RuntimeError, match="engine unavailable"):
-        get_hbs_result(_oval(), method="angular", **_cfg())
+        get_hbs_result(_oval(), method="harmonic_measure", **_cfg())
 
 
 # --- 输入阶梯 ---
@@ -127,23 +127,23 @@ def test_noisy_input_is_either_raw_or_reports_its_rung(sigma):
 
 
 def test_extreme_noise_fails_loudly_instead_of_switching_engine():
-    """σ=0.12 时角速度引擎在全部阶梯上失败——必须抛错，**不能**改用 zipper。
+    """σ=0.12 时调和测度引擎在全部阶梯上失败——必须抛错，**不能**改用 zipper。
 
     这是"互不替补"的直接可执行断言：若实现偷偷退避，这里会拿到一个结果。
 
-    门槛从 σ=0.05 抬到 0.12：角速度路径不再把输入重采样到 `circle_point_num`
+    门槛从 σ=0.05 抬到 0.12：调和测度路径不再把输入重采样到 `circle_point_num`
     （200），噪声不再被降采样混叠，σ=0.05 会在最后一档 `resample500+s4` 成功。
     那时它必须如实报 `rung`，见下面的 `test_noise_never_switches_engine`。
     """
     with pytest.raises(RuntimeError, match="均失败"):
-        get_hbs_result(_noisy(0.12), method="angular", **_cfg())
+        get_hbs_result(_noisy(0.12), method="harmonic_measure", **_cfg())
 
 
 @pytest.mark.parametrize("sigma", [0.02, 0.05, 0.08])
 def test_noise_never_switches_engine(sigma):
-    """噪声边界要么失败，要么仍由角速度引擎解出——绝不静默换成 zipper。"""
-    result = get_hbs_result(_noisy(sigma), method="angular", **_cfg())
-    assert result.engine == "angular"
+    """噪声边界要么失败，要么仍由调和测度引擎解出——绝不静默换成 zipper。"""
+    result = get_hbs_result(_noisy(sigma), method="harmonic_measure", **_cfg())
+    assert result.engine == "harmonic_measure"
     assert result.rung.startswith("raw") or result.rung.startswith("resample500")
 
 
@@ -202,6 +202,6 @@ def test_degenerate_input_raises(boundary):
 
 
 def test_engine_registry_is_the_single_source_of_truth():
-    assert set(ENGINES) == {"angular", "zipper"}
+    assert set(ENGINES) == {"harmonic_measure", "zipper"}
     for name, fn in ENGINES.items():
         assert callable(fn)

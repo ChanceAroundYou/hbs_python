@@ -1,6 +1,6 @@
-"""`angular_welding` 只拟合一次样条，求解器与极点搜索共用同一个 `_SplineShape`。
+"""`harmonic_measure_welding` 只拟合一次样条，求解器与极点搜索共用同一个 `_SplineShape`。
 
-2026-10-30 之前 `angular_welding` 走 `compute_direct_hbs_from_boundary(bound)`，
+2026-10-30 之前 `harmonic_measure_welding` 走 `compute_direct_hbs_from_boundary(bound)`，
 内部就拟合一次周期三次样条并搜一次极点；随后又构造 `_SplineShape(bound)` 再拟合
 一遍，供下游的 `shape.curve(parameter)` 使用。两次拟合的节点相同，所以数值一致，
 但同一条曲线被拟合两次、极点也搜两次。
@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from hbs._angular import direct
+from hbs._harmonic_measure import direct
 from hbs._pipeline import prepare_boundary
-from hbs.angular import angular_welding
+from hbs.harmonic_measure import harmonic_measure_welding
 
 
 def _ellipse(n: int = 1024) -> np.ndarray:
@@ -35,13 +35,13 @@ def test_solver_takes_the_curve_and_the_point_path_is_unused(monkeypatch):
 
     def forbidden(*_args, **_kwargs):
         raise AssertionError(
-            "angular_welding 不应再走 compute_direct_hbs_from_boundary"
+            "harmonic_measure_welding 不应再走 compute_direct_hbs_from_boundary"
         )
 
     monkeypatch.setattr(direct, "compute_direct_hbs", spy)
     monkeypatch.setattr(direct, "compute_direct_hbs_from_boundary", forbidden)
 
-    angular_welding(
+    harmonic_measure_welding(
         prepare_boundary(_ellipse(), 300, resample=False), circle_num=300, n=512
     )
 
@@ -55,7 +55,7 @@ def test_solver_takes_the_curve_and_the_point_path_is_unused(monkeypatch):
 def test_reversed_input_gives_the_same_welding():
     """输入遍历方向翻转后焊接逐位不变：样条按弧长均匀配点，旋转与翻转被规范吸收。"""
     prepared = prepare_boundary(_ellipse(), 300, resample=False)
-    forward = angular_welding(prepared, circle_num=300, n=512)
-    backward = angular_welding(prepared[::-1], circle_num=300, n=512)
+    forward = harmonic_measure_welding(prepared, circle_num=300, n=512)
+    backward = harmonic_measure_welding(prepared[::-1], circle_num=300, n=512)
     for key in ("init_x", "init_y", "parameter"):
         assert np.abs(forward[key] - backward[key]).max() < 1e-12

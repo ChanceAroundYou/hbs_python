@@ -3,10 +3,10 @@
 ## 为什么有这组测试
 
 2.3.3 及以前 `_pipeline.build_hbs` 自己调 `welding.linear_interp(circle_num)`，
-数值路径因此依赖 `ConformalWelding` —— 一个按 zipper 语义定义的类（`angular`
+数值路径因此依赖 `ConformalWelding` —— 一个按 zipper 语义定义的类（`harmonic_measure`
 构造出来的对象上 `x_post_norm` / `y_post_norm` / `uniquify` 直接
 `NotImplementedError`），并且把「引擎的输出是否已经在均匀源角上」这条契约藏进
-管线内部的一次调用里。若将来 angular 改成非均匀/自适应源角，那次**线性**插值会
+管线内部的一次调用里。若将来 harmonic_measure 改成非均匀/自适应源角，那次**线性**插值会
 静默吃掉新增精度。
 
 重构后的契约：
@@ -18,7 +18,7 @@
 
 前向数值与 2.3.3 逐位相同：μ、`field`、焊接的 `y`/`init_x`/`init_y`、盘顶点与
 规范相位在 46 组配置（2 引擎 × 4 `normalize` × 4 形状，外加非默认网格、重建门与
-`angular_mu_from_boundary` 入口）的 sha256 快照上逐一相同。唯一的例外是
+`harmonic_measure_mu_from_boundary` 入口）的 sha256 快照上逐一相同。唯一的例外是
 `welding.x`——`rotate_x` 的修复有意改变它，见文件末尾那个测试。
 """
 
@@ -53,11 +53,11 @@ def disk_fem():
 
 
 def _engine_result(engine: str):
-    prepared = prepare_boundary(_boundary(), CIRCLE, resample=(engine != "angular"))
+    prepared = prepare_boundary(_boundary(), CIRCLE, resample=(engine != "harmonic_measure"))
     return ENGINES[engine](prepared, CIRCLE)
 
 
-@pytest.mark.parametrize("engine", ["angular", "zipper"])
+@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper"])
 def test_engine_values_live_on_the_uniform_source_grid(engine):
     """引擎交出的就是源圆均匀网格上的边界值，管线不再插值。"""
     result = _engine_result(engine)
@@ -78,7 +78,7 @@ def test_engine_values_live_on_the_uniform_source_grid(engine):
     )
 
 
-@pytest.mark.parametrize("engine", ["angular", "zipper"])
+@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper"])
 def test_values_are_exactly_the_welding_y(engine):
     """`values` 不是另算的一份：它与 `welding.y` 逐位相同。"""
     result = _engine_result(engine)
@@ -89,7 +89,7 @@ def test_values_are_exactly_the_welding_y(engine):
 def test_build_hbs_needs_no_welding_object(normalize, disk_fem):
     """μ 只依赖边界值：传 `welding=None` 与传焊接给出逐位相同的 μ / field / 网格。"""
     disk, fem = disk_fem
-    result = _engine_result("angular")
+    result = _engine_result("harmonic_measure")
 
     mu_a, field_a, welding_a, disk_a, gauge_a = build_hbs(
         result.values, result.welding, disk, fem, normalize
@@ -114,7 +114,7 @@ def test_get_conformal_welding_and_get_hbs_share_the_resampled_welding():
     与 `get_hbs(normalize="none")` 的焊接不是同一件事。
     """
     bound = _boundary()
-    for engine in ("angular", "zipper"):
+    for engine in ("harmonic_measure", "zipper"):
         cw_forward = hbs.get_hbs(
             bound,
             method=engine,
@@ -129,7 +129,7 @@ def test_get_conformal_welding_and_get_hbs_share_the_resampled_welding():
         assert np.array_equal(np.asarray(cw_forward.x), np.asarray(cw_direct.x)), engine
 
 
-@pytest.mark.parametrize("engine", ["angular", "zipper"])
+@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper"])
 @pytest.mark.parametrize("normalize", ["none", "i2", "m34", "default"])
 def test_returned_welding_agrees_with_the_mesh_and_the_field(engine, normalize):
     """规范之后 `welding.x` 必须仍是盘边界顶点，`welding.y` 必须仍是边界值。
@@ -138,7 +138,7 @@ def test_returned_welding_agrees_with_the_mesh_and_the_field(engine, normalize):
     的边界值、`welding.y`）不动。
 
     修复前 `rotate_x` 转的是 `init_x_angle` 那张网格，而 `linear_interp` 之后
-    `x` 已经在均匀源角上：angular 的原始网格本就均匀，两者等价；zipper 的不是
+    `x` 已经在均匀源角上：harmonic_measure 的原始网格本就均匀，两者等价；zipper 的不是
     （实测相邻源角 0.021–0.052 rad），于是 `x` 与盘顶点错开 3.1 rad，而
     `field[:circle_num]` 仍与 `y` 逐位配对。
     """

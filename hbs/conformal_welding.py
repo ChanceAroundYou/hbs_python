@@ -62,10 +62,10 @@ class ConformalWelding:
         self.y = y
 
     @classmethod
-    def from_angular(cls, welding: dict) -> "ConformalWelding":
-        """从角速度引擎的焊接种构造（没有 zipper 的 slit 参数）。
+    def from_harmonic_measure(cls, welding: dict) -> "ConformalWelding":
+        """从调和测度引擎的焊接种构造（没有 zipper 的 slit 参数）。
 
-        `welding` 由 `hbs.angular.angular_welding` 给出，字段为：
+        `welding` 由 `hbs.harmonic_measure.harmonic_measure_welding` 给出，字段为：
 
         - `init_x_angle` / `init_x`：源圆角度与点；
         - `init_y`：目标圆上的点（`|y| = 1`），随源角严格单调、绕圆一圈；
@@ -80,10 +80,10 @@ class ConformalWelding:
         y = np.asarray(welding["init_y"], complex)
         if x.shape != y.shape or x.ndim != 1 or x.size < 2:
             raise ConformalWeldingNumericalError(
-                "angular welding arrays must be 1D, equally sized, and non-degenerate"
+                "harmonic-measure welding arrays must be 1D, equally sized, and non-degenerate"
             )
         if not (np.all(np.isfinite(x)) and np.all(np.isfinite(y))):
-            raise ConformalWeldingNumericalError("angular welding produced non-finite values")
+            raise ConformalWeldingNumericalError("harmonic-measure welding produced non-finite values")
         self.params = None
         self.init_x_angle = np.mod(np.asarray(welding["init_x_angle"], float), 2 * np.pi)
         self.init_x = np.exp(1j * self.init_x_angle)
@@ -97,7 +97,7 @@ class ConformalWelding:
     def _require_zipper_params(self, what: str) -> None:
         if getattr(self, "params", None) is None:
             raise NotImplementedError(
-                f"{what} requires the zipper slit parameters, which the angular engine "
+                f"{what} requires the zipper slit parameters, which the harmonic-measure engine "
                 "does not produce. Use get_conformal_welding(bound, method='zipper') "
                 "if you need this step."
             )
@@ -153,7 +153,7 @@ class ConformalWelding:
         转的是**当前 `x` 所在的网格**，不是 `init_x_angle` 那一张。两者在
         `linear_interp` 之后不再是同一张网格：`linear_interp` 把 `x` 写到从 0 起的
         均匀源角上（盘边界顶点就在这张网格上），而 `init_x_angle` 保留引擎的原始
-        起点。角速度引擎的原始网格本来就是均匀的，两种写法等价；zipper 的不是
+        起点。调和测度引擎的原始网格本来就是均匀的，两种写法等价；zipper 的不是
         （实测相邻源角相差 0.021–0.052 rad），转原始网格会让 `x` 与盘边界顶点错开
         3.1 rad，而 `field` 的边界值仍按顶点顺序与 `y` 配对。
 
@@ -238,7 +238,7 @@ class ConformalWelding:
 
 def get_conformal_welding(
     bound: np.ndarray[np.floating],
-    method: str = "angular",
+    method: str = "harmonic_measure",
     normalize: str = "default",
     resample_to: int = 500,
 ) -> ConformalWelding:
@@ -248,7 +248,7 @@ def get_conformal_welding(
     形状、同一 `method`、同一 `normalize` 给出与 `get_hbs` 内部完全一致的 `(x, y)`。
 
     :param `bound`: `n x 2` 闭合边界点（任意绕向）
-    :param `method`: `"angular"`（默认）或 `"zipper"`，与 `get_hbs` 同义；
+    :param `method`: `"harmonic_measure"`（默认）或 `"zipper"`，与 `get_hbs` 同义；
         两个引擎互不替补，任一失败即抛错
     :param `normalize`: `"default"`（默认）/`"i2"`/`"m34"`/`"c0"`/`"none"`，与 `get_hbs` 同义。
         规范需要先算一次 μ 才能确定相位（焊接已定，不重解），效果与 `get_hbs`
@@ -268,9 +268,9 @@ def get_conformal_welding(
     if normalize not in NORMALIZATIONS:
         raise ValueError(f"normalize must be one of {NORMALIZATIONS}, got {normalize!r}")
 
-    # 与 `get_hbs` 保持同一份预处理：角速度引擎不重采样，zipper 重采样。
+    # 与 `get_hbs` 保持同一份预处理：调和测度引擎不重采样，zipper 重采样。
     prepared = prepare_boundary(
-        np.asarray(bound, float), resample_to, resample=(method != "angular")
+        np.asarray(bound, float), resample_to, resample=(method != "harmonic_measure")
     )
     # 引擎交回的焊接已经在源圆均匀网格上（`WeldingResult.values`），这里不再
     # 重采样——否则 `normalize="none"` 下会与 `get_hbs` 交回不同状态的焊接。

@@ -160,7 +160,7 @@ def test_source_angles_must_be_distinct():
 # --- 实现层：真实引擎，容差按离散误差 ---
 
 
-def test_angular_and_zipper_welding_agree():
+def test_harmonic_measure_and_zipper_welding_agree():
     """两条前向路径的焊接在源圆旋转下相同。
 
     这是 2.2.0 的关键契约。数值口径见 `runs/焊接对齐度量_2026-10-28/`：
@@ -171,11 +171,11 @@ def test_angular_and_zipper_welding_agree():
     bound = np.stack([r * np.cos(t), r * np.sin(t)], axis=1)
     prep = prepare_boundary(bound, 600)
 
-    from hbs.angular import angular_welding
+    from hbs.harmonic_measure import harmonic_measure_welding
     from hbs.conformal_welding import ConformalWelding as CW
 
     zip_cw = zipper_welding_prepared(prep)
-    ang_cw = CW.from_angular(angular_welding(prep, circle_num=600))
+    ang_cw = CW.from_harmonic_measure(harmonic_measure_welding(prep, circle_num=600))
     result = compare_conformal_welding(zip_cw, ang_cw)
 
     assert np.degrees(result.rms_residual) < 0.5

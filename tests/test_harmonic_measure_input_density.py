@@ -1,6 +1,6 @@
-"""角速度路径保留原始输入点（不弧长重采样），zipper 仍然重采样。
+"""调和测度路径保留原始输入点（不弧长重采样），zipper 仍然重采样。
 
-背景见 `hbs._pipeline.prepare_boundary` 文档：角速度引擎自己按弧长拟合周期样条，
+背景见 `hbs._pipeline.prepare_boundary` 文档：调和测度引擎自己按弧长拟合周期样条，
 先把输入压到 `circle_point_num` 会提前丢掉几何信息；zipper 需要均匀弧长采样。
 """
 
@@ -43,7 +43,7 @@ def test_skip_resampling_is_still_roll_invariant() -> None:
         )
 
 
-@pytest.mark.parametrize(("method", "expected"), [("angular", False), ("zipper", True)])
+@pytest.mark.parametrize(("method", "expected"), [("harmonic_measure", False), ("zipper", True)])
 def test_engine_selects_resampling(monkeypatch, method: str, expected: bool) -> None:
     """`get_hbs_result` 按引擎显式选择是否重采样。"""
     import hbs.hbs as H
@@ -62,16 +62,16 @@ def test_engine_selects_resampling(monkeypatch, method: str, expected: bool) -> 
     assert seen == [expected]
 
 
-def test_angular_result_depends_on_input_density() -> None:
+def test_harmonic_measure_result_depends_on_input_density() -> None:
     """稠密输入与它自己的 500 点弧长重采样给出不同的 μ（重采样确有信息损失）。"""
     b = _smooth(900)
     dense = hbs.get_hbs_result(
-        b, circle_point_num=500, method="angular", normalize="none"
+        b, circle_point_num=500, method="harmonic_measure", normalize="none"
     )
     coarse = hbs.get_hbs_result(
         prepare_boundary(b, 500),
         circle_point_num=500,
-        method="angular",
+        method="harmonic_measure",
         normalize="none",
     )
     assert dense.mu.shape == coarse.mu.shape

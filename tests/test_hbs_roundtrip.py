@@ -196,7 +196,7 @@ def test_get_hbs_auto_disk_roundtrip():
     t = np.linspace(0, 2 * np.pi, 500, endpoint=False)
     ell = np.stack([1.2 * np.cos(t), np.sin(t)], 1)
     hbs, _, cw, _disk = get_hbs(ell, 500, 0.01)
-    assert cw is not None  # 2.2.0：两条路径都带焊接（统一从角速度求）
+    assert cw is not None  # 2.2.0：两条路径都带焊接（统一从调和测度求）
     disk = _disk
     assert disk.circle_num == _DEFAULT_CIRCLE
     rec, _, _, _ = reconstruct_from_hbs(hbs, disk)

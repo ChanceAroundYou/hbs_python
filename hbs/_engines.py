@@ -3,7 +3,7 @@
 ## 为什么必须是两套
 
 `get_hbs(method=...)` 的 `method` 必须真的切换算法，否则它是个骗人的参数，
-而且失去交叉验证能力：若角速度解在某类形状上系统性出错，没有第二个独立实现能发现。
+而且失去交叉验证能力：若调和测度解在某类形状上系统性出错，没有第二个独立实现能发现。
 
 两条路径的契约（`tests/test_engines.py` 钉住）：
 
@@ -17,7 +17,7 @@
 
 | 引擎 | 实现 | 特点 |
 |---|---|---|
-| `"angular"` | 边界层对数单层势 → 内外调和测度密度 → 圆相位 | 光滑曲线精度高；要求原始内外密度严格为正 |
+| `"harmonic_measure"` | 边界层对数单层势 → 内外调和测度密度 → 圆相位 | 光滑曲线精度高；要求原始内外密度严格为正 |
 | `"zipper"` | Bishop/Marshall Zipper（Möbius + 开方逐步收缩 slit） | 只依赖点序列，对不规则采样更宽容；对高对称形状有结构性退化 |
 
 **互不替补**：任一引擎在自己的输入阶梯上全部失败时抛错，不会静默换到另一个。
@@ -46,7 +46,7 @@ class WeldingResult:
     `values` 是**契约量**：长度 `circle_num` 的复数组，源圆均匀网格
     `θ_k = 2πk/circle_num` 上的边界值——`|values| = 1`、绕圆一周严格单调、首点
     相位归零。共用后端只消费它，**不再插值**；引擎各自负责把自己的输出放到这个
-    网格上（`angular` 本来就在，`zipper` 的源角非均匀，必须重采样）。
+    网格上（`harmonic_measure` 本来就在，`zipper` 的源角非均匀，必须重采样）。
 
     `welding` 是诊断与记账用的对象：施加规范后 `rotate_x` 要跟着转源角，
     `weld_compare` 用它比较两个引擎。数值路径不需要它（`build_hbs` 接受
@@ -66,7 +66,7 @@ def _result(
 ) -> WeldingResult:
     """把引擎输出收拾成 `WeldingResult`：在源圆均匀网格上取样。
 
-    重采样放在**引擎侧**而不是共用后端：angular 的输出本就在均匀源角上（这次
+    重采样放在**引擎侧**而不是共用后端：harmonic_measure 的输出本就在均匀源角上（这次
     调用数值恒等，实测 `y` 差 1.1e-14），zipper 的输出源角非均匀（实测相邻源角
     相差 0.021–0.052 rad），必须重采样。哪一侧需要重采样是引擎的实现细节，不该
     漏进 `_pipeline`；`linear_interp` 用的是**线性**插值，留在后端会静默吃掉
@@ -84,7 +84,7 @@ def _result(
 def _rungs(bound: np.ndarray) -> "list[tuple[str, np.ndarray]]":
     """失败时的输入阶梯：原始 → 弧长重采样 → 逐级高斯平滑。
 
-    像素阶梯轮廓、噪声轮廓会让角速度解出现负的调和测度密度，直接失败。这几级是
+    像素阶梯轮廓、噪声轮廓会让调和测度引擎解出负的密度，直接失败。这几级是
     **降级**而非等价结果：救回的形状保真明显低于原始输入成功时，调用方会把
     `rung` 报出去。
     """
@@ -124,14 +124,14 @@ def _first_success(
     ) from last
 
 
-def angular(bound: np.ndarray, circle_num: int) -> WeldingResult:
-    """角速度引擎：边界层对数单层势求解。"""
-    from hbs.angular import angular_welding
+def harmonic_measure(bound: np.ndarray, circle_num: int) -> WeldingResult:
+    """调和测度引擎：边界层对数单层势求解。"""
+    from hbs.harmonic_measure import harmonic_measure_welding
 
     return _first_success(
-        "angular", bound, circle_num,
-        lambda candidate: ConformalWelding.from_angular(
-            angular_welding(candidate, circle_num=circle_num)
+        "harmonic_measure", bound, circle_num,
+        lambda candidate: ConformalWelding.from_harmonic_measure(
+            harmonic_measure_welding(candidate, circle_num=circle_num)
         ),
     )
 
@@ -146,6 +146,6 @@ def zipper(bound: np.ndarray, circle_num: int) -> WeldingResult:
 
 #: 引擎注册表。新增引擎只需在这里登记，`get_hbs` / `get_conformal_welding` 自动可用。
 ENGINES: dict[str, Callable[[np.ndarray, int], WeldingResult]] = {
-    "angular": angular,
+    "harmonic_measure": harmonic_measure,
     "zipper": zipper,
 }

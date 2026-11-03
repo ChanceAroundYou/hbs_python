@@ -54,7 +54,7 @@ from hbs import get_hbs, reconstruct_from_hbs
 from hbs.utils.boundary import get_boundary   # needs hbs[boundary]
 
 bound = get_boundary("img/example.png", 250)          # n x 2, either winding order
-mu, field, welding, disk = get_hbs(bound)             # method="angular", normalize="default"
+mu, field, welding, disk = get_hbs(bound)             # method="harmonic_measure", normalize="default"
 
 rec_bound, in_points, out_points, mapping = reconstruct_from_hbs(mu, disk)
 ```
@@ -64,14 +64,14 @@ so it hands back a *new* `DiskMesh`, and a face-count mismatch makes LSQC assert
 
 ## The two knobs
 
-`get_hbs(bound, circle_point_num=500, density=0.01, disk=None, method="angular",
+`get_hbs(bound, circle_point_num=500, density=0.01, disk=None, method="harmonic_measure",
 normalize="default", validate_reconstruction=False)`
 
 ### `method` — which forward engine solves the welding
 
 | `method` | algorithm | character |
 |---|---|---|
-| `"angular"` (default) | boundary-layer logarithmic single-layer potentials | most accurate on smooth curves; needs a strictly positive interior/exterior harmonic-measure density |
+| `"harmonic_measure"` (default) | boundary-layer logarithmic single-layer potentials | most accurate on smooth curves; needs a strictly positive interior/exterior harmonic-measure density |
 | `"zipper"` | Bishop/Marshall zipper | works from the point sequence alone; more tolerant of irregular sampling; structurally degraded on highly symmetric shapes |
 
 The two are **independent implementations and never fall back to each other**. An
@@ -125,18 +125,49 @@ explicit `disk`.
 
 | call | what it gives you |
 |---|---|
-| `get_hbs(bound, circle_point_num=500, density=0.01, disk=None, method="angular", normalize="default", validate_reconstruction=False)` | `(mu, field, welding, disk)` |
+| `get_hbs(bound, circle_point_num=500, density=0.01, disk=None, method="harmonic_measure", normalize="default", validate_reconstruction=False)` | `(mu, field, welding, disk)` |
 | `get_hbs_result(...)` | `HBSResult(mu, field, welding, disk, engine, rung, gauge, guard_rung)` |
 | `reconstruct_from_hbs(mu, disk, eps=0.0)` | `(bound_points, in_points, out_points, mapping)` |
-| `get_conformal_welding(bound, method="angular", normalize="default", resample_to=500)` | `ConformalWelding` — bitwise identical to the welding `get_hbs` used for the same `method` |
+| `get_conformal_welding(bound, method="harmonic_measure", normalize="default", resample_to=500)` | `ConformalWelding` — bitwise identical to the welding `get_hbs` used for the same `method` |
 | `compare_engines(first, second, disk, fem, circle_num)` | `EngineAgreement(welding_shift, welding_rms, mu_max, mu_rms)` — aligns the source-circle rotation first |
 | `select_gauge(mu, disk, kind="default")` | `GaugeChoice` |
 | `compare_welding` / `compare_conformal_welding` / `welding_curve` | welding agreement as a degree-1 circle homeomorphism |
 | `get_beltrami_coefficient`, `lsqc_solver`, `mu_chop` | quasiconformal primitives |
 | `get_unit_disk`, `get_rect`, `get_unit_disk_in_rect`, `Mesh`, `DiskMesh` | meshes |
+| `hbs.volumetric`: `TetraMesh`, `ball_tetra_mesh`, `SpheroidChart`, `RevolutionChart`, `solve_fixed_trace`, `solve_softmax` | discrete 3D fixed-trace quasiconformal prototype (local minimax of `K`); see below |
 
 `mu` is complex, `field`/`mapping` are real `n × 2` arrays; `hbs.utils.cast.to_real` /
 `to_complex` convert between the two representations.
+
+### 3D fixed-trace prototype (`hbs.volumetric`)
+
+`hbs.volumetric` is a **discrete** 3D companion, not a generalization proven to match
+HBS. A `TetraMesh` holds the source ball (interior vertices first, boundary last), a
+boundary chart (`SpheroidChart` for ellipsoids, optionally composed with a target-side
+ball Möbius map, or `RevolutionChart` for any smooth surface of revolution) supplies the
+target trace, and the interior is a P1 piecewise-affine map. With `A = DG` per
+tetrahedron and singular values `s1 ≥ s2 ≥ s3`, `J = det A`,
+
+```
+K = max(s1³/|J|, |J|/s3³)          K = 1  ⇔  the element is a similarity
+```
+
+`solve_fixed_trace` minimizes `max K` with SLSQP on the epigraph form; `solve_softmax`
+minimizes a log-sum-exp upper bound with L-BFGS-B. Both give **local** solutions only:
+no uniqueness, no continuum `K_min`, no global-optimality claim. `K` is geometric
+(distortion of the map) and carries no material parameters — it is **not** stress or
+strain. `solve_fixed_trace` returns the last SLSQP iterate, which is not guaranteed
+feasible; check `success` / `minimum_constraint`, or keep the best feasible iterate in
+`callback`.
+
+```python
+from hbs.volumetric import SpheroidChart, ball_tetra_mesh, solve_fixed_trace
+
+chart = SpheroidChart(a=1.0, c=1.5)
+mesh = ball_tetra_mesh(boundary_count=48, interior_count=10, seed=0)
+result = solve_fixed_trace(chart, mesh, maxiter=40)
+print(result["initial"]["max_K"], "→", result["final"]["max_K"])
+```
 
 ### Length convention
 
@@ -149,7 +180,7 @@ circle_point_num)` returns `(disk, fem)` and caches both on disk.
 ## Measured on `img/example.png` (hbs 2.3.3, default mesh, 2026-10-30)
 
 ```
-engine=angular  rung=raw  faces=60796  circle=500   solve 0.21 s warm (mesh cached)
+engine=harmonic_measure  rung=raw  faces=60796  circle=500   solve 0.21 s warm (mesh cached)
 gauge  default (c0)  phase 1.07°  conf_i2=0.0023  conf_m3=0.2019  branch_margin 90°
 |mu|   max 0.99996, 220 of 60796 faces above 0.99
 reconstruction  similarity-invariant fidelity 0.0332   (zipper on the same input: 0.2568)
@@ -166,7 +197,7 @@ separate warmed runs (the notebook measures no time).
 2.3.2 fell back to M3+M4 here (phase 176.66°); 2.3.3 reports the branch-free `c0`
 anchor instead (phase 1.07°). Similarity-invariant readings do not move with the
 gauge — 2.3.2 scores `0.0174` for `auto`, `i2`, `m34` and `none` alike. The fidelity
-difference **is** real and comes from the angular engine: 2.3.2 resampled the 250
+difference **is** real and comes from the harmonic-measure engine: 2.3.2 resampled the 250
 input points to 500 before solving, 2.3.3 keeps them. Over the 100-shape frozen set
 that change wins 81:9, but this shape sits at `max|μ| = 0.99996` where the
 reconstruction is sensitive, and it is one of the minority. `mu_max` in the engine
@@ -200,18 +231,21 @@ are recorded in [CHANGELOG.md](https://github.com/ChanceAroundYou/hbs_python/blo
 ## Main modules
 
 - `hbs.py`: `get_hbs` / `get_hbs_result` / `reconstruct_from_hbs`
-- `_engines.py`: the two forward engines behind one registry (`angular`, `zipper`); each
+- `_engines.py`: the two forward engines behind one registry (`harmonic_measure`, `zipper`); each
   resamples its own output onto the uniform source circle, so the backend never does
 - `_pipeline.py`: the single backend — prepare, FEM extension, `μ`, gauges,
   `compare_engines`; consumes boundary values, not a welding object
 - `_guard.py`: optional reconstruction validity gate (2.3.2)
-- `angular.py` + `_angular/direct.py`: the angular-velocity engine and its vendored kernel (NumPy/SciPy only)
+- `harmonic_measure.py` + `_harmonic_measure/direct.py`: the harmonic-measure engine and its vendored kernel (NumPy/SciPy only)
 - `conformal_welding.py`: `ConformalWelding` / `get_conformal_welding`
 - `extension.py`: P1 finite-element harmonic extension, shared by both engines
 - `cache.py`: on-disk cache for the disk mesh and its FEM operator
 - `gauges.py`: I₂ anchor, the paper's M3+M4 closed form, and the branch-free `c0` anchor
 - `weld_compare.py`: welding agreement metric (degree-1 circle homeomorphism)
 - `mesh.py`: `Mesh` / `DiskMesh` / `get_rect` / `get_unit_disk` / `get_unit_disk_in_rect`
+- `volumetric/`: `TetraMesh` + `build_tetramesh` / `ball_tetra_mesh` (`mesh.py`),
+  boundary charts (`chart.py`), distortion metrics (`metrics.py`), the SLSQP and
+  L-BFGS-B solvers (`solve.py`), and independent audits (`audit.py`)
 - `plotting.py`: optional plotting helpers (matplotlib imported lazily)
 - `qc/`: `beltrami.py` (Beltrami coefficient, `mu_chop`), `lsqc.py` (least-squares quasiconformal map)
 - `utils/`: `boundary.py` (OpenCV boundary extraction), `cast.py`, `eval.py`

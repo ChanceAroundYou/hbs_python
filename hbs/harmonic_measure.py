@@ -1,6 +1,6 @@
-"""角速度引擎：边界层对数单层势 → 共形焊接。
+"""调和测度引擎：边界层对数单层势 → 共形焊接。
 
-这是 `hbs._engines.angular` 的实现。**只负责焊接**：之后的调和延拓、μ、I₂ 规范
+这是 `hbs._engines.harmonic_measure` 的实现。**只负责焊接**：之后的调和延拓、μ、I₂ 规范
 全部在 `hbs._pipeline`，两条引擎共用。
 
 ## 原理
@@ -72,8 +72,8 @@ class _SplineShape:
         return self._x(v, 1) + 1j * self._y(v, 1)
 
 
-def angular_welding(bound: np.ndarray, circle_num: int = 500, n: int = 1024) -> dict:
-    """求角速度焊接，返回 `ConformalWelding.from_angular` 需要的字典。
+def harmonic_measure_welding(bound: np.ndarray, circle_num: int = 500, n: int = 1024) -> dict:
+    """求调和测度焊接，返回 `ConformalWelding.from_harmonic_measure` 需要的字典。
 
     :param `bound`: `n x 2` 光滑闭合曲线采样（会被 `_SplineShape` 翻成逆时针）
     :param `circle_num`: 源圆采样点数
@@ -81,7 +81,7 @@ def angular_welding(bound: np.ndarray, circle_num: int = 500, n: int = 1024) -> 
     :return: `init_x_angle` / `init_x` / `init_y` / `parameter` / `boundary`
     :raises RuntimeError: 原始内外调和测度密度出现非正值（不接受密度修剪）
     """
-    from hbs._angular import direct
+    from hbs._harmonic_measure import direct
 
     # 样条只在这里拟合一次：求解器的 `curve`/`derivative`、极点搜索与下游的
     # `shape.curve(parameter)` 共用同一个 `_SplineShape`。
@@ -90,7 +90,7 @@ def angular_welding(bound: np.ndarray, circle_num: int = 500, n: int = 1024) -> 
         shape.curve, shape.derivative, n=n, pole=direct._interior_pole(shape.points)
     )
     if result.min_raw_internal_density <= 0 or result.min_raw_external_density <= 0:
-        raise RuntimeError("角速度基线需要原始内外角速度严格为正，不接受密度修剪")
+        raise RuntimeError("调和测度基线要求原始内外调和测度密度严格为正，不接受密度修剪")
 
     t = 2 * np.pi * np.arange(len(result.alpha)) / len(result.alpha)
     alpha = CubicSpline(
@@ -117,30 +117,30 @@ def angular_welding(bound: np.ndarray, circle_num: int = 500, n: int = 1024) -> 
     }
 
 
-def angular_mu_from_boundary(
+def harmonic_measure_mu_from_boundary(
     bound: np.ndarray,
     n: int = 1024,
     disk: "DiskMesh | None" = None,
     normalize: str = "default",
 ) -> tuple[np.ndarray, np.ndarray, "DiskMesh", object, dict]:
-    """角速度路径的便捷入口：`bound → (mu, field, disk, result, stats)`。
+    """调和测度路径的便捷入口：`bound → (mu, field, disk, result, stats)`。
 
-    2.2.0 起这是 `hbs._pipeline` 的薄封装，与 `get_hbs(method="angular")` 走**同一
+    2.2.0 起这是 `hbs._pipeline` 的薄封装，与 `get_hbs(method="harmonic_measure")` 走**同一
     段代码**（此前 `_mu_on_mesh` 是一条独立实现，同一规范化有两份，语义必然漂移）。
 
-    保留这个签名是为了兼容旧调用方；新代码应直接用 `hbs.get_hbs` 或
+    这个入口留给仍走便捷封装的调用方；新代码应直接用 `hbs.get_hbs` 或
     `hbs.get_hbs_result`（后者能拿到引擎名与降级落点）。
 
-    :param `n`: 边界层离散点数（传给 `angular_welding`），默认 1024
+    :param `n`: 边界层离散点数（传给 `harmonic_measure_welding`），默认 1024
     :param `disk`: 显式网格；省略时用 `(density=0.01, circle=500)` 的缓存网格
     :param `normalize`: `"default"`（默认）/`"i2"`/`"m34"`/`"c0"`/`"none"`，与 `get_hbs` 同义
     :raises RuntimeError: 全部输入阶梯失败
     """
     from hbs._pipeline import build_hbs, prepare_boundary, resolve_disk
-    from hbs._engines import angular as _engine
+    from hbs._engines import harmonic_measure as _engine
 
     circle_num = disk.circle_num if disk is not None else 500
-    # 与 `get_hbs(method="angular")` 一致：角速度引擎不重采样输入边界。
+    # 与 `get_hbs(method="harmonic_measure")` 一致：调和测度引擎不重采样输入边界。
     prepared = prepare_boundary(np.asarray(bound, float), circle_num, resample=False)
     result = _engine(prepared, circle_num)
     disk, fem = resolve_disk(disk, 0.01, circle_num)

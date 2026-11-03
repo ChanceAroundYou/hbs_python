@@ -1,4 +1,4 @@
-"""把角速度求解器自身的误差与下游（焊接插值、FEM 延拓）分开量。
+"""把调和测度求解器自身的误差与下游（焊接插值、FEM 延拓）分开量。
 
 `compute_direct_hbs(curve, derivative, pole=)` 吃解析曲线，`compute_direct_hbs_from_boundary`
 吃点集并在归一化弧长上拟合周期三次样条。两条路用同一个 n、同一个极点，所以
@@ -24,7 +24,7 @@ n=1024 vs n=8192               3.91e-13       （仅记录）
 ===========================  =============  ==========
 
 结论：**光滑边界上求解器本身是机器精度级准确的**，n=256 已收敛。所以库管线里
-观察到的 1.23e-5（FEM 延拓 vs Poisson 积分，见 `test_angular_oracle.py`）与
+观察到的 1.23e-5（FEM 延拓 vs Poisson 积分，见 `test_harmonic_measure_oracle.py`）与
 2.6e-5（合成形状的保真度地板）**全部来自下游**：焊接的样条重参数化、
 `linear_interp`、P1 延拓、μ 的面心离散与重建。它把「该优化哪一层」这个问题
 从积分方程上移开了。
@@ -35,7 +35,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from hbs._angular import direct
+from hbs._harmonic_measure import direct
 
 A, B = 1.3, 0.8
 

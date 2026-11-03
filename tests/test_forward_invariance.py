@@ -26,7 +26,7 @@ from hbs.conformal_welding import ConformalWelding, zipper_welding_prepared
 from hbs.mesh import get_unit_disk
 from hbs.weld_compare import compare_conformal_welding
 
-import hbs.angular as angular
+import hbs.harmonic_measure as harmonic_measure
 
 CIRCLE = 120
 DENSITY = 0.05
@@ -54,9 +54,9 @@ def _rotate(b, angle):
 
 
 def _weld(prepared, engine):
-    if engine == "angular":
-        return ConformalWelding.from_angular(
-            angular.angular_welding(prepared, circle_num=WELD_N)
+    if engine == "harmonic_measure":
+        return ConformalWelding.from_harmonic_measure(
+            harmonic_measure.harmonic_measure_welding(prepared, circle_num=WELD_N)
         )
     return zipper_welding_prepared(prepared)
 
@@ -87,12 +87,12 @@ _TRANSFORMS = {
 }
 
 
-@pytest.mark.parametrize("engine", ["angular", "zipper"])
+@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper"])
 @pytest.mark.parametrize("name", list(_SHAPES))
 def test_rigid_transform_invariance(disk, engine, name):
     """旋转 / 平移 / 缩放（含复合）后 μ 只剩浮点噪声。
 
-    阈值 1e-6 相对：实测 angular 是 1e-11、zipper 是 1e-9，留足两个量级余量。
+    阈值 1e-6 相对：实测 harmonic_measure 是 1e-11、zipper 是 1e-9，留足两个量级余量。
     这条同时覆盖"两个引擎都协变"——只测一个会漏掉某条路径单独退化。
     """
     b = _boundary(_SHAPES[name])
@@ -101,7 +101,7 @@ def test_rigid_transform_invariance(disk, engine, name):
         assert _rel(_mu(fn(b), engine, disk), base) < 1e-6, f"{engine}/{label}"
 
 
-@pytest.mark.parametrize("engine", ["angular", "zipper"])
+@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper"])
 def test_c0_gauge_is_forward_invariant(disk, engine):
     """`normalize="c0"`（无分支锚 `C₀ = M₁·conj(M₃)`）也必须在刚体变换下不变。
 
@@ -121,7 +121,7 @@ def test_c0_gauge_is_forward_invariant(disk, engine):
         assert _rel(got.mu, base.mu) < 1e-6, f"{engine}/{label}"
 
 
-@pytest.mark.parametrize("engine", ["angular", "zipper"])
+@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper"])
 def test_rigid_transform_leaves_the_welding_alone(engine):
     """焊接 `(x, y)` 本身在刚体变换下不变（不是靠规范吸收）。"""
     b = _boundary(_SHAPES["asym_dent3"])
@@ -134,7 +134,7 @@ def test_rigid_transform_leaves_the_welding_alone(engine):
 
 # --- 2. 起始点 ---
 
-@pytest.mark.parametrize("engine", ["angular", "zipper"])
+@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper"])
 @pytest.mark.parametrize("shift", [1, 37, 211])
 def test_start_point_roll_is_bitwise_invariant(disk, engine, shift):
     """循环移位起点后 μ **逐位**相同（几何锚点只依赖点集）。"""
@@ -145,7 +145,7 @@ def test_start_point_roll_is_bitwise_invariant(disk, engine, shift):
 
 # --- 3. 采集密度是收敛量 ---
 
-@pytest.mark.parametrize("engine", ["angular", "zipper"])
+@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper"])
 def test_density_refinement_converges(disk, engine):
     """加密输入采样时，μ 单调逼近最细档（相对差随 n 下降）。
 
