@@ -97,11 +97,11 @@ version newer than PyPI's latest describe work that is on `main` only.
 - Local solver with a known domain restriction: strong non-convex boundaries
   (e.g. `cos t + 0.3 cos 2t + i(sin t + 0.2 sin 3t)`) can leave the Robin residual
   at ~0.13 and raise `RuntimeError` explicitly.
-- `pde_welding` defaults to `n=96` and caps the boundary selector at
-  `max_modes=192`. On a six-shape same-benchmark comparison at the public
-  `density=0.01, circle_point_num=500` grid, `n=512` did not change reconstruction
-  fidelity measurably and was 1.6× slower at the median (up to 2.8× worst case), so
-  `n=96` remains the default; details are in `docs/pde-engine.md`.
+- `pde_welding` defaults to `n=128` and caps the boundary selector at
+  `max_modes=192`. `n=128` is the first accuracy plateau in a harmonic-measure
+  comparison; `n=96` remains the fast option and `n=80` the minimum safe value
+  (`n=64` fails the interior gate on `asym_dent3`). Raising `n` beyond 128 does
+  not improve reconstruction fidelity. Details are in `docs/pde-engine.md`.
 - Speed: the PDE selector now uses `min_modes=64`, `target_residual=3e-4` and an
   absolute early-stop floor `2e-8` instead of always running to 192; `n >= 256`
   warm-starts from an `n=96` solve. On the same six-shape benchmark `asym_dent3`

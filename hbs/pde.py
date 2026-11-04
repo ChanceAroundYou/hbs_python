@@ -23,7 +23,8 @@ trace-only 路径：在边界上解非线性 Robin 问题
   1–2%；简单形状仍在 16–32 阶。
 - ``n >= 256`` 时默认先用 n=96 解一次并周期插值作为初值；实测 n=512 的内域
   迭代从 11 次降到 4 次，解与冷启动一致到残差量级。
-- 稠密 `n x n` 线性求解在部分 BLAS 上很慢，默认 n=96。
+- 稠密 `n x n` 线性求解在部分 BLAS 上很慢；默认 n=128（首个精度平台），
+  n=96 仍是快速选项。
 - 旋转协变性已修好：外域一阶相位用**形状内参考**归一化，整体旋转输入时选出
   的边界参数化逐位不变，μ 相对差约 1e-11。
 
@@ -307,7 +308,7 @@ def pde_welding(
     bound: np.ndarray,
     circle_num: int = 500,
     *,
-    n: int = 96,
+    n: int = 128,
     max_iterations: int = 35,
     warm_start: bool = True,
     selection_target_residual: float = _SELECTION_TARGET,
