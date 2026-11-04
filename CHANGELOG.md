@@ -10,6 +10,42 @@ version newer than PyPI's latest describe work that is on `main` only.
 
 ## [Unreleased]
 
+### Added — `hbs.tbs`: fixed-complete-circle TBS solver
+
+- `solve_tbs(beta=None, alpha=None, *, trace=None, spacing=0.1, boundary_count=128,
+  initial_values=None, mesh=None, max_steps=200, initial_radius=1e-4,
+  minimum_radius=1e-12, maximum_radius=1e-3, max_backtracks=20, armijo=1e-4,
+  relative_stationarity=1e-5, feasibility_tolerance=1e-10, lp_method="highs-ipm")`
+  minimizes `max_face |mu|` over orientation-preserving piecewise-linear self-maps of
+  the disk with the complete-circle welding frozen. Each step linearizes every face
+  modulus, solves the all-face sparse linear minimax problem (HiGHS interior point)
+  inside a box trust region, and accepts the trial only after reevaluating the exact
+  nonlinear objective and every face Jacobian.
+- Inputs: a monotone degree-one welding table `(beta, alpha)` in radians, or a trace
+  object exposing `angle(theta)` — `hbs.tbs.LocalC2Boundary` (exact-rational local C2
+  rounding of a welding table, the representation the solver consumes) or
+  `hbs.tbs.FourierCircleTrace`. The trace is frozen: only interior vertices move, and
+  `boundary_trace_max_difference` reports the check rather than assuming it.
+- Returns `values` (complex mapped vertices), `z` / `faces` / `n_interior` / `theta`,
+  `start_k` / `final_k` (peak `|mu|`), `final_minimum_jacobian`, `p1_qc_feasible`,
+  `stop_reason`, `accepted_steps` and the per-step `history`.
+- **Scope**: a local finite-P1 candidate only. No global minimax proof, no continuum
+  T-map, no mesh-limit claim and no certificate — independent upper (interval
+  enclosure) and lower (RS circle integrals) bounds live outside this package.
+- `stop_reason` values: `iteration_limit`, `relative_model_descent_below_threshold`,
+  `trust_radius_below_coordinate_roundoff_floor`,
+  `trust_radius_below_minimum_after_rejections`, `linear_subproblem_failure`.
+  `iteration_limit` means the step budget ran out — a budget, not a convergence
+  verdict.
+- Measured on a 120-point boundary with a 500-point welding, 300 steps: 3.0-5.5 s at
+  421 vertices / 712 faces and 7.8-26.7 s at 1465 vertices / 2672 faces (one
+  development machine; the asymmetric oval went from |mu| 0.527 to 0.196). A 3000-step
+  run still ended at `iteration_limit`.
+- Tests: `tests/test_tbs.py`.
+- No version bump here; release numbering is left to the release that ships the
+  `harmonic_measure` rename.
+
+
 ### Changed — BREAKING: `angular` engine renamed to `harmonic_measure`
 
 - `get_hbs(..., method=...)` and `get_conformal_welding(...)`: `"angular"` becomes

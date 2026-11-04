@@ -134,10 +134,42 @@ explicit `disk`.
 | `compare_welding` / `compare_conformal_welding` / `welding_curve` | welding agreement as a degree-1 circle homeomorphism |
 | `get_beltrami_coefficient`, `lsqc_solver`, `mu_chop` | quasiconformal primitives |
 | `get_unit_disk`, `get_rect`, `get_unit_disk_in_rect`, `Mesh`, `DiskMesh` | meshes |
+| `solve_tbs(beta, alpha, spacing=0.1, boundary_count=128, ...)` | local P1 minimax self-map of the disk with the complete-circle welding frozen; see below |
 | `hbs.volumetric`: `TetraMesh`, `ball_tetra_mesh`, `SpheroidChart`, `RevolutionChart`, `solve_fixed_trace`, `solve_softmax` | discrete 3D fixed-trace quasiconformal prototype (local minimax of `K`); see below |
 
 `mu` is complex, `field`/`mapping` are real `n × 2` arrays; `hbs.utils.cast.to_real` /
 `to_complex` convert between the two representations.
+
+### Fixed-complete-circle TBS (`hbs.tbs`)
+
+`solve_tbs` minimizes `max_face |μ|` over orientation-preserving piecewise-linear
+self-maps of the disk with the complete-circle welding frozen:
+
+```python
+import hbs
+from hbs.weld_compare import welding_curve
+
+mu, field, welding, disk = hbs.get_hbs(bound)     # the existing HBS path
+curve = welding_curve(welding)
+beta, alpha = curve.source, curve.target[:-1]     # degree-one lift, radians
+result = hbs.solve_tbs(beta, alpha, boundary_count=128)
+result["final_k"], result["accepted_steps"], result["stop_reason"]
+```
+
+- Input: a monotone degree-one welding table `(beta, alpha)` in radians starting at 0
+  and ending below `2π`, or any trace object exposing `angle(theta)`
+  (`hbs.tbs.LocalC2Boundary`, `hbs.tbs.FourierCircleTrace`).
+- The trace is frozen: the solver moves interior vertices only, and reports
+  `boundary_trace_max_difference` so that this is checked, not assumed.
+- Cost: `spacing=0.1, boundary_count=128` gives 421 vertices / 712 faces; measured
+  on a 120-point boundary with a 500-point welding, 300 steps took 3.0–5.5 s at that
+  size and 7.8–26.7 s at 1465 vertices / 2672 faces (one development machine).
+- **Scope**: the result is a local finite-P1 candidate. It is not a global minimax
+  proof, not a continuum T-map, and carries no certificate; independent upper/lower
+  bounds on `K` are produced outside this package. `stop_reason` is
+  `iteration_limit` when the step budget runs out — a budget, not a convergence
+  verdict — while `relative_model_descent_below_threshold` and
+  `trust_radius_below_coordinate_roundoff_floor` report why a run stopped early.
 
 ### 3D fixed-trace prototype (`hbs.volumetric`)
 
@@ -242,6 +274,9 @@ are recorded in [CHANGELOG.md](https://github.com/ChanceAroundYou/hbs_python/blo
 - `cache.py`: on-disk cache for the disk mesh and its FEM operator
 - `gauges.py`: I₂ anchor, the paper's M3+M4 closed form, and the branch-free `c0` anchor
 - `weld_compare.py`: welding agreement metric (degree-1 circle homeomorphism)
+- `tbs/`: `solve_tbs` — local P1 minimax self-map of the disk with a frozen
+  complete-circle welding (`boundary.py` inputs, `geometry.py` mesh and start map,
+  `solver.py` the all-face linear minimax step)
 - `mesh.py`: `Mesh` / `DiskMesh` / `get_rect` / `get_unit_disk` / `get_unit_disk_in_rect`
 - `volumetric/`: `TetraMesh` + `build_tetramesh` / `ball_tetra_mesh` (`mesh.py`),
   boundary charts (`chart.py`), distortion metrics (`metrics.py`), the SLSQP and

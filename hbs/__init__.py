@@ -16,6 +16,7 @@ from .gauges import GAUGES, GaugeChoice, select_gauge
 from .hbs import get_hbs, get_hbs_result, reconstruct_from_hbs
 from .mesh import DiskMesh, Mesh, get_rect, get_unit_disk, get_unit_disk_in_rect
 from .qc import get_beltrami_coefficient, lsqc_solver, mu_chop
+from .tbs import solve_tbs
 from .volumetric import (
     RevolutionChart,
     SpheroidChart,
@@ -40,7 +41,7 @@ from .weld_compare import (
     welding_curve,
 )
 
-from . import conformal_welding, gauges, mesh, qc, utils, volumetric
+from . import conformal_welding, gauges, mesh, qc, tbs, utils, volumetric
 
 __all__ = [
     "__version__",
@@ -76,6 +77,8 @@ __all__ = [
     "get_rect",
     "get_unit_disk",
     "get_unit_disk_in_rect",
+    # 固定完整圆周 TBS（局部有限 P1 候选，无证书、无全局或连续结论）
+    "solve_tbs",
     # 三维固定迹原型（离散，非连续极值）
     "TetraMesh",
     "build_tetramesh",
