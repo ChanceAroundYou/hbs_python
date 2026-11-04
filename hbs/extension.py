@@ -8,7 +8,8 @@
 
 P1 有限元离散后就是稀疏线性系统 `A h = -B y`，其中 `A` 是内部节点的弱拉普拉斯
 （质量加权），`B` 是内部—边界耦合块。`A` 只依赖网格，**与形状无关**，所以
-`hbs.cache` 把它跟网格一起存盘、跨进程复用。
+`hbs.cache` 把它跟网格一起存盘、跨进程复用；同一个 `disk` 对象的 `A` 分解也会
+在进程内复用，`build_hbs` 连续调用时不再重复 `splu`。
 
 ## 为什么统一到 FEM
 
@@ -35,7 +36,7 @@ from __future__ import annotations
 
 import numpy as np
 
-import hbs.cache as cache
+from hbs import cache
 
 
 def fem_extend(disk, boundary_values, fem=None, factor=None):
@@ -59,7 +60,7 @@ def fem_extend(disk, boundary_values, fem=None, factor=None):
 
     if fem is None:
         fem = cache._fem_operator(disk)
-    A, B = fem
+    _A, B = fem
     if factor is None:
         factor = cache.fem_extension_operator(disk, fem)
 

@@ -58,8 +58,8 @@ Rotation, translation, scaling and start-point rolls are invariant.
 The solver is local. Strong non-convex boundaries (for example
 `cos t + 0.3 cos 2t + i(sin t + 0.2 sin 3t)`) can leave the interior Robin residual
 around `0.13`; the engine then raises `RuntimeError` explicitly instead of silently
-degrading. The low-level entry is `hbs.pde.pde_welding` (default `n=128`; pass
-`n=96` for the fast option).
+degrading. The low-level entry is `hbs.pde.pde_welding`; its supported default is
+`n=128`.
 
 ### Selector continuation and warm start
 
@@ -88,14 +88,18 @@ shapes are within timing noise because the shared `build_hbs` stage dominates th
 full HBS call.
 
 A separate `n` scan against the harmonic-measure reference found: `n=64` fails the
-interior acceptance gate on `asym_dent3`; `n=80` is the minimum safe value with
-asymmetric μ rms `2.1e-3`; `n=96` gives `1.8e-3`; `n=128` gives `1.2e-3` and is
-the first accuracy plateau (`n=192` and `n=512` are the same). The total
-`pde_welding` cost of `n=128` is only about 3–5 ms above `n=96` on the simple
-shapes and is unchanged on `asym_dent3`, because the selector dominates there.
-Therefore `n=128` is the default; `n=96` remains the fast option and `n=80` the
-minimum safe value. Raising `n` beyond 128 does not improve reconstruction
-fidelity.
+interior acceptance gate on `asym_dent3`; `n=80` gives asymmetric μ rms `2.1e-3`;
+`n=96` gives `1.8e-3`; `n=128` gives `1.2e-3` and is the first accuracy plateau
+(`n=192` and `n=512` are the same). The total `pde_welding` cost of `n=128` is only
+about 3–5 ms above `n=96` on the simple shapes and is unchanged on `asym_dent3`,
+because the selector dominates there. `n=128` is the only supported default;
+raising `n` beyond 128 does not improve reconstruction fidelity.
+
+The shared FEM path now also caches the `disk`/`fem` objects and the `splu(A)`
+factorization in-process. `build_hbs` drops from about 134–155 ms per call to
+about 68 ms after the first factorization; the full `get_hbs(method="pde")`
+call is 2.2–4.1× faster than the pre-cache baseline on the six-shape set. First
+call still pays one factorization (about 69 ms).
 
 A same-benchmark comparison with accuracy, speed, feasibility and invariance is
 kept in `HBS-research/runs/三引擎同台对比_2026-11-04/报告.md`; the optimization

@@ -110,6 +110,11 @@ version newer than PyPI's latest describe work that is on `main` only.
   (`n=512`). Welding/μ changed by at most ~2% on those shapes; the other four
   were unchanged. The public `get_hbs` call is diluted by the shared `build_hbs`
   stage, so its hard-shape gain is smaller (about 1.3–1.7×).
+- FEM cache: `load_unit_disk` now returns the same `disk`/`fem` objects for the
+  same `(density, circle)` and caches `splu(A)` by disk identity. `build_hbs`
+  drops from about 134–155 ms to about 68 ms per repeated call after the first
+  factorization; full `get_hbs(method="pde")` is 2.2–4.1× faster than the
+  pre-cache baseline on the six-shape set.
 - Tests: `tests/test_pde_prototype.py`, plus `pde` in the forward-invariance and
   engine-dispatch suites.
 
