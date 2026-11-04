@@ -109,3 +109,26 @@ def test_pde_welding_rejects_non_smooth_input():
     )
     with pytest.raises((ValueError, RuntimeError)):
         pde_welding(bound, circle_num=120, n=96)
+
+
+def test_pde_warm_start_reduces_iterations():
+    """n>=256 时先用 n=96 解再插值，内域迭代数应下降。"""
+    bound = _ellipse()
+    cold = pde_welding(bound, circle_num=120, n=256, warm_start=False)
+    warm = pde_welding(bound, circle_num=120, n=256, warm_start=True)
+    assert cold["pde_diagnostics"]["warm_start_n"] is None
+    assert warm["pde_diagnostics"]["warm_start_n"] == 96
+    assert warm["pde_diagnostics"]["iterations"] < cold["pde_diagnostics"]["iterations"]
+    assert warm["pde_diagnostics"]["curvature_robin_max"] < 1e-6
+
+
+def test_pde_selector_uses_min_mode_policy():
+    """PDE 侧选择器不因低阶残差先过 3e-4 就在第 8 阶停。"""
+    t = np.linspace(0.0, 2.0 * np.pi, 500, endpoint=False)
+    z = (1 + 0.30 * np.cos(3 * t + 0.5) + 0.12 * np.cos(t - 0.9)) * np.exp(1j * t)
+    bound = np.stack([z.real, z.imag], 1)
+    trace = pde_welding(bound, circle_num=120, n=96)
+    selection = trace["selection_diagnostics"]
+    assert selection["modes"] <= 128
+    assert selection["dense_forbidden_residual"] <= 3e-4
+    assert trace["pde_diagnostics"]["selection_gate"] == 3e-4

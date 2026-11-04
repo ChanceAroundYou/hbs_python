@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from time import perf_counter
 
 import numpy as np
-from scipy.linalg import lstsq
+from scipy.linalg import LinAlgError, lstsq, solve
 
 __all__ = [
     "BoundarySelection",
@@ -165,6 +165,20 @@ class _SlidingBoundaryProblem:
         return result
 
 
+def _newton_step(jacobian, residual):
+    """解 ``J δ = r``：方阵直接求解，奇异/病态时回退到 ``lstsq``。
+
+    Jacobian 在这里总是 ``(2M+1) × (2M+1)``。直接求解比 ``gelsy`` 快，
+    但早期阶段或退化曲线上可能秩亏；回退保留原来的最小二乘行为。
+    """
+    try:
+        return solve(jacobian, residual, assume_a="gen", check_finite=False)
+    except (LinAlgError, ValueError):
+        return lstsq(
+            jacobian, residual, cond=1e-12, lapack_driver="gelsy"
+        )[0]
+
+
 def _solve_once(
     curve,
     derivative,
@@ -200,9 +214,7 @@ def _solve_once(
         if np.sqrt(state["cost"]) < tolerance:
             reason = "residual_tolerance"
             break
-        delta = lstsq(
-            state["jacobian"], -state["residual"], cond=1e-12, lapack_driver="gelsy"
-        )[0]
+        delta = _newton_step(state["jacobian"], -state["residual"])
         accepted = False
         for power in range(20):
             step = 2.0**-power
@@ -243,9 +255,18 @@ def _solve_once(
     return BoundarySelection(coefficients, problem.modes, diagnostics)
 
 
-def _stage_modes(modes, max_modes):
-    """续算频率表：``8, 16, 32, …``，最后一项是请求的上限。"""
+def _stage_modes(modes, max_modes, min_modes=8):
+    """续算频率表：``8, 16, 32, …``，最后一项是请求的上限。
+
+    ``min_modes`` 只控制“最早允许停止”的阶数，不改变逐级加密的起点；低阶
+    残差若已低于绝对阈值，仍可在低阶提前停止（见 ``min_absolute_residual``）。
+    """
     max_modes = _positive_int(max_modes, "max_modes")
+    min_modes = _positive_int(min_modes, "min_modes")
+    if min_modes > max_modes:
+        raise ValueError(
+            f"min_modes ({min_modes}) must not exceed max_modes ({max_modes})"
+        )
     if modes is None:
         limit = max_modes
     else:
@@ -271,6 +292,8 @@ def solve_sliding_boundary(
     *,
     continuation=True,
     max_modes=512,
+    min_modes=8,
+    min_absolute_residual=0.0,
     target_residual=2e-7,
 ):
     """用阻尼 Gauss–Newton 选择边界参数化。
@@ -294,6 +317,13 @@ def solve_sliding_boundary(
         ``False`` 时只跑 ``modes`` 这一阶（要求 ``modes`` 是整数）。
     max_modes:
         自动续算的最高频率上限，默认 512。
+    min_modes:
+        自动续算的最低频率下限，默认 8。PDE 引擎用 64：低阶残差过目标时，
+        高阶项仍可能影响焊接/μ，不能在第 8 阶就停。
+    min_absolute_residual:
+        若某阶的加密残差已经低于此绝对阈值，即使还没到 ``min_modes`` 也允许
+        停止；默认 0（关闭该捷径）。PDE 引擎用 ``2e-8``，让圆/近似解析形状
+        在低阶直接停，而普通形状仍至少走到 ``min_modes``。
     target_residual:
         自动续算的加密残差目标，默认 ``2e-7``（与 ``accepted`` 同一阈值；
         可调紧到 ``2e-9`` 换取更高精度，代价是更高阶与更长时间）。
@@ -317,6 +347,9 @@ def solve_sliding_boundary(
     target_residual = float(target_residual)
     if not np.isfinite(target_residual) or target_residual <= 0.0:
         raise ValueError("target_residual must be finite and positive")
+    min_absolute_residual = float(min_absolute_residual)
+    if not np.isfinite(min_absolute_residual) or min_absolute_residual < 0.0:
+        raise ValueError("min_absolute_residual must be finite and non-negative")
     if initial is not None:
         initial = np.asarray(initial, dtype=float)
         if initial.ndim != 1 or len(initial) % 2 != 1:
@@ -331,7 +364,7 @@ def solve_sliding_boundary(
         )
 
     start = perf_counter()
-    stages = _stage_modes(modes, max_modes)
+    stages = _stage_modes(modes, max_modes, min_modes)
     current = None
     history = []
     selection = None
@@ -351,7 +384,14 @@ def solve_sliding_boundary(
                 "seconds": diagnostics["seconds"],
             }
         )
-        if modes is None and diagnostics["dense_forbidden_residual"] < target_residual:
+        if (
+            modes is None
+            and diagnostics["dense_forbidden_residual"] < target_residual
+            and (
+                stage >= min_modes
+                or diagnostics["dense_forbidden_residual"] < min_absolute_residual
+            )
+        ):
             break
     selection.diagnostics["seconds"] = perf_counter() - start
     selection.diagnostics["continuation_stages"] = history

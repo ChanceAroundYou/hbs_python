@@ -102,6 +102,14 @@ version newer than PyPI's latest describe work that is on `main` only.
   `density=0.01, circle_point_num=500` grid, `n=512` did not change reconstruction
   fidelity measurably and was 1.6× slower at the median (up to 2.8× worst case), so
   `n=96` remains the default; details are in `docs/pde-engine.md`.
+- Speed: the PDE selector now uses `min_modes=64`, `target_residual=3e-4` and an
+  absolute early-stop floor `2e-8` instead of always running to 192; `n >= 256`
+  warm-starts from an `n=96` solve. On the same six-shape benchmark `asym_dent3`
+  dropped from 286 ms to 104 ms (`n=96`) and 379 ms to 164 ms (`n=512`);
+  `three_lobe` dropped from 96 ms to 53 ms (`n=96`) and 209 ms to 97 ms
+  (`n=512`). Welding/μ changed by at most ~2% on those shapes; the other four
+  were unchanged. The public `get_hbs` call is diluted by the shared `build_hbs`
+  stage, so its hard-shape gain is smaller (about 1.3–1.7×).
 - Tests: `tests/test_pde_prototype.py`, plus `pde` in the forward-invariance and
   engine-dispatch suites.
 

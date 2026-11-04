@@ -8,6 +8,7 @@ from scipy.spatial import cKDTree
 
 from hbs.boundary_selection import (
     BoundarySelection,
+    _newton_step,
     _parameter_basis,
     _SlidingBoundaryProblem,
     solve_sliding_boundary,
@@ -198,3 +199,43 @@ def test_invalid_inputs_are_rejected():
             lambda t: 1j * np.exp(1j * t),
             initial=np.zeros(4),
         )
+
+
+def test_min_modes_delays_early_stop():
+    """残差已过目标但未到 min_modes 时，仍要再加密一档。"""
+    curve, derivative, _ = analytic_case("circle")
+    selection = solve_sliding_boundary(
+        curve, derivative, min_modes=32, target_residual=1e-3
+    )
+    assert selection.modes == 32
+    assert selection.diagnostics["continuation_stages"][-1]["modes"] == 32
+
+
+def test_min_absolute_residual_allows_early_stop():
+    """绝对残差已经极小时，允许在 min_modes 之前停止。"""
+    curve = lambda t: np.exp(1j * t)
+    derivative = lambda t: 1j * np.exp(1j * t)
+    selection = solve_sliding_boundary(
+        curve,
+        derivative,
+        min_modes=64,
+        min_absolute_residual=1e-6,
+        target_residual=1e-3,
+    )
+    assert selection.modes == 8
+    assert selection.diagnostics["continuation_stages"][-1]["modes"] == 8
+
+
+def test_min_modes_above_max_modes_is_rejected():
+    curve, derivative, _ = analytic_case("circle")
+    with pytest.raises(ValueError, match="min_modes"):
+        solve_sliding_boundary(
+            curve, derivative, max_modes=32, min_modes=64
+        )
+
+
+def test_newton_step_falls_back_on_singular_system():
+    """方阵直接求解失败时应回退到最小二乘，而不是把异常漏出去。"""
+    delta = _newton_step(np.ones((3, 3)), np.array([1.0, 2.0, 3.0]))
+    assert delta.shape == (3,)
+    assert np.all(np.isfinite(delta))

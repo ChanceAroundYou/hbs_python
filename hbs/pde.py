@@ -17,8 +17,13 @@ trace-only 路径：在边界上解非线性 Robin 问题
 - 这是离散原型：验收看 ``curvature_robin_max``、``normalization_residual``、
   ``augmentation_norm`` 三个诊断；引擎用 ``robin/augmentation <= 1e-3`` 的
   宽松阈值，不声称连续误差界或全局唯一性。
-- 外域选择器在引擎里用 ``max_modes=192``（硬形状的加密残差可能到 1e-5，
-  但 μ 与 512 阶一致）；稠密 `n x n` 线性求解在部分 BLAS 上很慢，默认 n=96。
+- 外域选择器在引擎里用 ``min_modes=64``、``max_modes=192``，停止目标是
+  ``3e-4``；低阶残差若已低于 ``2e-8`` 才允许提前停。这样 ``asym_dent3``
+  从 192 阶降到 128 阶，``three_lobe`` 从 128 阶降到 64 阶，μ/焊接只差
+  1–2%；简单形状仍在 16–32 阶。
+- ``n >= 256`` 时默认先用 n=96 解一次并周期插值作为初值；实测 n=512 的内域
+  迭代从 11 次降到 4 次，解与冷启动一致到残差量级。
+- 稠密 `n x n` 线性求解在部分 BLAS 上很慢，默认 n=96。
 - 旋转协变性已修好：外域一阶相位用**形状内参考**归一化，整体旋转输入时选出
   的边界参数化逐位不变，μ 相对差约 1e-11。
 
@@ -40,6 +45,7 @@ M1 圆盘自同构居中，之后与 :mod:`hbs.harmonic_measure` 在源圆旋转
 
 from __future__ import annotations
 
+from functools import lru_cache
 from time import perf_counter
 
 import numpy as np
@@ -50,6 +56,15 @@ from scipy.optimize import root
 from hbs._harmonic_measure.direct import _operator
 
 __all__ = ["pde_welding", "solve_metric_trace"]
+
+#: 引擎默认选择器上限与 PDE 侧的宽松验收门（见 `docs/pde-engine.md`）。
+_SELECTION_MAX_MODES = 192
+_SELECTION_MIN_MODES = 64
+_SELECTION_MIN_ABSOLUTE = 2e-8
+_SELECTION_TARGET = 3e-4
+_SELECTION_GATE = 3e-4
+_WARM_START_N = 96
+_WARM_START_THRESHOLD = 256
 
 
 class _BoundaryShape:
@@ -77,8 +92,13 @@ class _BoundaryShape:
         return self._spline.derivative(t)
 
 
+@lru_cache(maxsize=8)
 def _integration_matrix(n: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """返回 ``(t, dt, integration)``；``integration @ f`` 是 f 的谱原函数。"""
+    """返回 ``(t, dt, integration)``；``integration @ f`` 是 f 的谱原函数。
+
+    只依赖 ``n``，缓存后同一次 `pde_welding` 内的内域求解与样条组装共用同一份
+    矩阵；返回数组只读，调用方不得原地修改。
+    """
     dt = 2.0 * np.pi / n
     t = dt * np.arange(n)
     k = np.fft.fftfreq(n, 1.0 / n)
@@ -289,6 +309,8 @@ def pde_welding(
     *,
     n: int = 96,
     max_iterations: int = 35,
+    warm_start: bool = True,
+    selection_target_residual: float = _SELECTION_TARGET,
 ) -> dict:
     """用「外域 Fourier 条件 + 内域平坦度量 PDE」构造焊接种。
 
@@ -299,6 +321,12 @@ def pde_welding(
         y(θ) = exp(i (p(θ) + α(p(θ)) - p(θ))) = exp(i α(p(θ))).
 
     其中 ``p(θ)`` 是外域条件选出的边界参数，``α`` 是内域绝对共形角。
+
+    ``n >= 256`` 且 ``warm_start=True`` 时，先用 ``n=96`` 解一次，把 ``u``
+    周期插值到细网格作为初值；实测 n=512 的内域迭代从 11 次降到 4 次，解与
+    冷启动一致到残差量级。``selection_target_residual`` 是 PDE 侧选择器的
+    停止目标（默认 ``3e-4``）；选择器至少走到 64 阶，只有绝对残差低于
+    ``2e-8`` 时才允许更早停止；引擎验收门取目标与 ``3e-4`` 的较大值。
     """
     from hbs.boundary_selection import solve_sliding_boundary
 
@@ -310,13 +338,30 @@ def pde_welding(
         raise ValueError("circle_num must be at least 3")
 
     shape = _BoundaryShape(bound)
+    initial = None
+    warm_start_n = None
+    if warm_start and n >= _WARM_START_THRESHOLD:
+        coarse_u, _, _ = solve_metric_trace(
+            shape,
+            n=_WARM_START_N,
+            max_iterations=max_iterations,
+            robin_tolerance=1e-3,
+            augmentation_tolerance=1e-3,
+        )
+        t_fine = 2.0 * np.pi * np.arange(n) / n
+        t_coarse = 2.0 * np.pi * np.arange(_WARM_START_N) / _WARM_START_N
+        initial = np.interp(t_fine, t_coarse, coarse_u, period=2.0 * np.pi)
+        warm_start_n = _WARM_START_N
+
     _u, alpha, diagnostics = solve_metric_trace(
         shape,
         n=n,
+        initial=initial,
         max_iterations=max_iterations,
         robin_tolerance=1e-3,
         augmentation_tolerance=1e-3,
     )
+    diagnostics["warm_start_n"] = warm_start_n
     if not diagnostics["geometry_pde_accepted"]:
         raise RuntimeError(
             "PDE interior solve did not meet its raw acceptance thresholds "
@@ -330,16 +375,25 @@ def pde_welding(
     diagnostics["m1_residual"] = m1_residual
 
     selection = solve_sliding_boundary(
-        shape.curve, shape.derivative, max_modes=192
+        shape.curve,
+        shape.derivative,
+        max_modes=_SELECTION_MAX_MODES,
+        min_modes=_SELECTION_MIN_MODES,
+        min_absolute_residual=_SELECTION_MIN_ABSOLUTE,
+        target_residual=selection_target_residual,
     )
     selection_diagnostics = selection.diagnostics
+    selection_gate = max(_SELECTION_GATE, float(selection_target_residual))
+    diagnostics["selection_target_residual"] = float(selection_target_residual)
+    diagnostics["selection_gate"] = selection_gate
     if (
-        selection_diagnostics["dense_forbidden_residual"] > 1e-4
+        selection_diagnostics["dense_forbidden_residual"] > selection_gate
         or selection_diagnostics["dense_min_parameter_speed"] <= 0
     ):
         raise RuntimeError(
             "boundary selection did not meet its lenient thresholds "
             f"(dense={selection_diagnostics['dense_forbidden_residual']:.2e}, "
+            f"gate={selection_gate:.2e}, "
             f"speed={selection_diagnostics['dense_min_parameter_speed']:.2e})"
         )
 

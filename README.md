@@ -136,7 +136,7 @@ explicit `disk`.
 | `get_beltrami_coefficient`, `lsqc_solver`, `mu_chop` | quasiconformal primitives |
 | `get_unit_disk`, `get_rect`, `get_unit_disk_in_rect`, `Mesh`, `DiskMesh` | meshes |
 | `solve_tbs(beta, alpha, spacing=0.1, boundary_count=128, ...)` | local P1 minimax self-map of the disk with the complete-circle welding frozen; see below |
-| `solve_sliding_boundary(curve, derivative, modes=None, initial=None, max_iterations=50, tolerance=2e-10, *, continuation=True, max_modes=512, target_residual=2e-7)`, `BoundarySelection` | Fourier boundary-correspondence selection for the PDE route (local solver; auto-continues in Fourier order) |
+| `solve_sliding_boundary(curve, derivative, modes=None, initial=None, max_iterations=50, tolerance=2e-10, *, continuation=True, max_modes=512, min_modes=8, min_absolute_residual=0.0, target_residual=2e-7)`, `BoundarySelection` | Fourier boundary-correspondence selection for the PDE route (local solver; auto-continues in Fourier order) |
 | `hbs.volumetric`: `TetraMesh`, `ball_tetra_mesh`, `SpheroidChart`, `RevolutionChart`, `solve_fixed_trace`, `solve_softmax` | discrete 3D fixed-trace quasiconformal prototype (local minimax of `K`); see below |
 
 `mu` is complex, `field`/`mapping` are real `n × 2` arrays; `hbs.utils.cast.to_real` /

@@ -58,8 +58,21 @@ Rotation, translation, scaling and start-point rolls are invariant.
 The solver is local. Strong non-convex boundaries (for example
 `cos t + 0.3 cos 2t + i(sin t + 0.2 sin 3t)`) can leave the interior Robin residual
 around `0.13`; the engine then raises `RuntimeError` explicitly instead of silently
-degrading. The low-level entry is `hbs.pde.pde_welding` (default `n=96`, selector
-`max_modes=192`).
+degrading. The low-level entry is `hbs.pde.pde_welding` (default `n=96`).
+
+### Selector continuation and warm start
+
+The PDE route does not need the standalone selector's `2e-7` residual. It uses
+`min_modes=64`, `max_modes=192`, `target_residual=3e-4`, and only allows an earlier
+stop when the dense residual is already below `2e-8`. The engine gate is `3e-4`.
+This keeps the low-order stages for simple shapes, advances `asym_dent3` to 128
+instead of 192, and advances `three_lobe` to 64 instead of 128; measured
+welding/μ changes are at most about 2% on those shapes, and zero on the others.
+
+For `n >= 256`, `pde_welding` first solves `n=96`, periodically interpolates `u`
+onto the fine grid, and uses it as the initial guess. On the development shapes
+the interior iterations at `n=512` fall from 7 to 3 (analytic/ellipse/peanut/
+bent) and from 11 to 4 (`asym_dent3`), with the same residual scale.
 
 ### Performance note
 
@@ -67,9 +80,15 @@ The public HBS grid defaults are `density=0.01` and `circle_point_num=500`; the 
 trace `n` is independent. On six smooth shapes at
 `density=0.01`, `circle_point_num=500`, forward median times were approximately
 `harmonic 138 ms`, `zipper 180 ms`, `pde n=96 136 ms`, and `pde n=512 225 ms`
-(single-threaded, three repetitions). Raising `n` to 512 did not change the
-reconstruction fidelity measurably and cost 1.6× median (up to 2.8× worst case),
-so `n=96` remains the default; pass a larger `n` only when explicitly needed.
+(single-threaded, three repetitions) before the selector/warm-start changes.
+After them, `pde_welding` on the hard shape `asym_dent3` dropped from about
+`286 ms` to `104 ms` at `n=96` and from `379 ms` to `164 ms` at `n=512`; simple
+shapes are within timing noise because the shared `build_hbs` stage dominates the
+full HBS call. Raising `n` to 512 still does not change reconstruction fidelity
+measurably, so `n=96` remains the default; pass a larger `n` only when explicitly
+needed.
 
 A same-benchmark comparison with accuracy, speed, feasibility and invariance is
-kept in `HBS-research/runs/三引擎同台对比_2026-11-04/报告.md`.
+kept in `HBS-research/runs/三引擎同台对比_2026-11-04/报告.md`; the optimization
+baseline and before/after tables are in
+`HBS-research/runs/PDE提速_2026-11-04/报告.md`.
