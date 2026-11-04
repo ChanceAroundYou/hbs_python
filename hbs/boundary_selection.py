@@ -46,8 +46,6 @@ from scipy.linalg import lstsq
 
 __all__ = [
     "BoundarySelection",
-    "SlidingBoundaryProblem",
-    "parameter_basis",
     "solve_sliding_boundary",
 ]
 
@@ -84,11 +82,11 @@ class BoundarySelection:
     def parameter(self, theta):
         """把参考参数 ``θ`` 映到选定的边界参数 ``p(θ)``。"""
         theta = np.asarray(theta, dtype=float)
-        basis, _ = parameter_basis(theta.ravel(), self.modes)
+        basis, _ = _parameter_basis(theta.ravel(), self.modes)
         return (theta.ravel() + basis @ self.coefficients).reshape(theta.shape)
 
 
-def parameter_basis(theta, modes):
+def _parameter_basis(theta, modes):
     """返回参数扰动 ``p(θ) - θ`` 的基函数及其导数。
 
     基的列顺序为 ``[1, cos θ, …, cos Mθ, sin θ, …, sin Mθ]``。
@@ -104,7 +102,7 @@ def parameter_basis(theta, modes):
     return basis, derivative
 
 
-class SlidingBoundaryProblem:
+class _SlidingBoundaryProblem:
     """固定曲线下的有限 Fourier 边界选择问题。
 
     目标泛函是禁用正频率的加权平方和；``evaluate`` 同时给出解析 Jacobian，
@@ -118,9 +116,9 @@ class SlidingBoundaryProblem:
         self.modes = _positive_int(modes, "modes")
         self.count = 8 * (self.modes + 1)
         self.theta = 2 * np.pi * np.arange(self.count) / self.count
-        self.basis, self.basis_derivative = parameter_basis(self.theta, self.modes)
+        self.basis, self.basis_derivative = _parameter_basis(self.theta, self.modes)
         dense_theta = 2 * np.pi * np.arange(4 * self.count) / (4 * self.count)
-        _, self.dense_derivative = parameter_basis(dense_theta, self.modes)
+        _, self.dense_derivative = _parameter_basis(dense_theta, self.modes)
         self.positive = np.arange(2, 2 * self.modes + 2)
         self.weights = np.sqrt(self.positive)
         z = np.asarray(curve(self.theta), dtype=complex)
@@ -182,7 +180,7 @@ def _solve_once(
         raise ValueError("tolerance must be finite and positive")
 
     start = perf_counter()
-    problem = SlidingBoundaryProblem(curve, derivative, modes)
+    problem = _SlidingBoundaryProblem(curve, derivative, modes)
     coefficients = np.zeros(2 * problem.modes + 1)
     if initial is not None:
         initial = np.asarray(initial, dtype=float)
@@ -195,16 +193,10 @@ def _solve_once(
         coefficients[problem.modes + 1 : problem.modes + 1 + keep] = initial[
             old_modes + 1 : old_modes + 1 + keep
         ]
-    trace, reason = [], "iteration_limit"
+    iterations, reason = 0, "iteration_limit"
     for iteration in range(max_iterations):
+        iterations = iteration + 1
         state = problem.evaluate(coefficients, True)
-        trace.append(
-            {
-                "iteration": iteration,
-                "residual": float(np.sqrt(state["cost"])),
-                "min_speed": state["min_speed"],
-            }
-        )
         if np.sqrt(state["cost"]) < tolerance:
             reason = "residual_tolerance"
             break
@@ -228,7 +220,7 @@ def _solve_once(
             break
     # 独立的更密 Fourier 检查；采样单调性不是连续证明。
     theta = 2 * np.pi * np.arange(4 * problem.count) / (4 * problem.count)
-    basis, dbasis = parameter_basis(theta, problem.modes)
+    basis, dbasis = _parameter_basis(theta, problem.modes)
     p = theta + basis @ coefficients
     spectrum = np.fft.fft(curve(p)) / len(p)
     pos = np.arange(2, len(p) // 2)
@@ -240,14 +232,13 @@ def _solve_once(
         "modes": problem.modes,
         "collocation_count": problem.count,
         "stop_reason": reason,
-        "iterations": len(trace),
+        "iterations": iterations,
         "discrete_residual": float(np.sqrt(problem.evaluate(coefficients)["cost"])),
         "dense_forbidden_residual": residual_dense,
         "dense_min_parameter_speed": min_speed,
         "leading_real": float(leading.real),
         "leading_imag": float(leading.imag),
         "accepted": bool(residual_dense < 2e-7 and min_speed > 0 and leading.real > 0),
-        "trace": trace,
     }
     return BoundarySelection(coefficients, problem.modes, diagnostics)
 

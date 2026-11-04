@@ -8,8 +8,8 @@ from scipy.spatial import cKDTree
 
 from hbs.boundary_selection import (
     BoundarySelection,
-    SlidingBoundaryProblem,
-    parameter_basis,
+    _parameter_basis,
+    _SlidingBoundaryProblem,
     solve_sliding_boundary,
 )
 
@@ -42,12 +42,12 @@ def analytic_case(name: str):
 
 def test_parameter_basis_derivative_matches_finite_difference():
     theta = np.linspace(0.0, 2.0 * np.pi, 41, endpoint=False)
-    basis, derivative = parameter_basis(theta, modes=3)
+    basis, derivative = _parameter_basis(theta, modes=3)
     assert basis.shape == (len(theta), 7)
     assert derivative.shape == basis.shape
     step = 1e-6
     finite_difference = (
-        parameter_basis(theta + step, 3)[0] - parameter_basis(theta - step, 3)[0]
+        _parameter_basis(theta + step, 3)[0] - _parameter_basis(theta - step, 3)[0]
     ) / (2 * step)
     assert np.allclose(derivative, finite_difference, atol=1e-9)
 
@@ -78,7 +78,7 @@ def test_parameter_preserves_input_shape():
 
 def test_jacobian_matches_finite_difference():
     curve, derivative, _ = analytic_case("ellipse")
-    problem = SlidingBoundaryProblem(curve, derivative, modes=16)
+    problem = _SlidingBoundaryProblem(curve, derivative, modes=16)
     rng = np.random.default_rng(0)
     initial = 0.002 * rng.normal(size=33) / np.r_[
         1.0, np.arange(1, 17) ** 2, np.arange(1, 17) ** 2
@@ -121,7 +121,7 @@ def test_analytic_laurent_family_is_recovered():
     reference = exact(np.linspace(0.0, 2.0 * np.pi, 200000, endpoint=False))
     tree = cKDTree(np.c_[reference.real, reference.imag])
     distance, _ = tree.query(np.c_[recovered.real, recovered.imag])
-    scale = SlidingBoundaryProblem(curve, derivative, modes=16).scale
+    scale = _SlidingBoundaryProblem(curve, derivative, modes=16).scale
     assert distance.max() / scale < 1e-4
 
 
@@ -184,10 +184,10 @@ def test_arbitrary_start_phase_is_initialized():
 
 def test_invalid_inputs_are_rejected():
     with pytest.raises(ValueError):
-        parameter_basis(np.linspace(0.0, 1.0, 5), modes=0)
+        _parameter_basis(np.linspace(0.0, 1.0, 5), modes=0)
     with pytest.raises(ValueError, match="degenerate"):
-        SlidingBoundaryProblem(lambda t: np.ones_like(t), lambda t: np.zeros_like(t))
-    problem = SlidingBoundaryProblem(
+        _SlidingBoundaryProblem(lambda t: np.ones_like(t), lambda t: np.zeros_like(t))
+    problem = _SlidingBoundaryProblem(
         lambda t: np.exp(1j * t), lambda t: 1j * np.exp(1j * t), modes=4
     )
     with pytest.raises(ValueError, match="coefficients"):

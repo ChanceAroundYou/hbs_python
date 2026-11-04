@@ -169,7 +169,7 @@ def solve_metric_trace(
     if u.shape != (n,) or not np.all(np.isfinite(u)):
         raise ValueError("initial must be a finite array with one value per grid point")
     multipliers = np.zeros(2)
-    trace = []
+    iterations = 0
 
     def evaluate(values, lam, jacobian=False):
         ee = np.exp(np.clip(values, -700.0, 100.0))
@@ -205,14 +205,8 @@ def solve_metric_trace(
         return result
 
     for iteration in range(max_iterations):
+        iterations = iteration + 1
         state = evaluate(u, multipliers, True)
-        trace.append(
-            {
-                "iteration": iteration,
-                "merit": state["merit"],
-                "raw_max": float(np.abs(state["raw"]).max()),
-            }
-        )
         if state["merit"] < tolerance:
             break
         delta = np.linalg.solve(state["matrix"], -state["residual"])
@@ -247,10 +241,9 @@ def solve_metric_trace(
         "augmentation_norm": float(np.linalg.norm(multipliers)),
         "metric_log_min": float(u.min()),
         "metric_log_max": float(u.max()),
-        "iterations": len(trace),
+        "iterations": iterations,
         "geometry_pde_accepted": bool(geometry_ok),
         "metric_total_boundary_length": float(dt * np.sum(np.exp(u) * speed)),
-        "trace": trace,
     }
     return u, alpha, diagnostics
 

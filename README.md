@@ -142,51 +142,27 @@ explicit `disk`.
 `mu` is complex, `field`/`mapping` are real `n × 2` arrays; `hbs.utils.cast.to_real` /
 `to_complex` convert between the two representations.
 
-### Boundary correspondence selection (`hbs.boundary_selection`)
+### PDE route (`hbs.boundary_selection` + `method="pde"`)
 
 `solve_sliding_boundary` chooses a parameterization `p` of a positively oriented
 Jordan curve `γ` so that `γ ∘ p` has no positive Fourier modes above the first and
-its first mode is real positive **relative to the input curve's own first Fourier
-coefficient** — an implicit exterior-conformality condition. It takes **no**
-exterior density and **no** prescribed boundary correspondence `β`. The solver is a
-damped Gauss–Newton and is **local**: it checks sampled monotonicity and a denser
-Fourier residual, not a continuous certificate.
-By default it continues in Fourier order (`8 → 16 → 32 → …`) until the dense
-residual is below `target_residual` or `max_modes` is reached; supply `initial`
-to disable that automatic continuation and control the warm start yourself.
-Inspect `diagnostics["accepted"]`, `dense_forbidden_residual`, and
-`dense_min_parameter_speed`; `accepted` alone is not a proof. The module only
-selects the correspondence — it does not solve HBS, extend harmonically, or
-reconstruct `μ`.
+its first mode is real positive relative to the input curve's own first Fourier
+coefficient — an implicit exterior-conformality condition. It takes no exterior
+density and no prescribed boundary correspondence, is a **local** damped
+Gauss–Newton, and auto-continues in Fourier order (`8 → 16 → …`) unless `initial`
+is supplied. Inspect `diagnostics["accepted"]`,
+`dense_forbidden_residual`, and `dense_min_parameter_speed`; `accepted` alone is
+not a continuous certificate.
 
-```python
-import numpy as np
-from hbs.boundary_selection import solve_sliding_boundary
+`method="pde"` combines that selector with the interior flat-metric PDE
+`Δu = 0, κ + ∂ₙu = eᵘ` and the paper's M1 centering `Σ Φ₁⁻¹(z_k)=0`. It does not
+use the harmonic-measure density. After M1 alignment it matches
+`harmonic_measure` up to a source-circle rotation, and it is invariant under
+rotation/translation/scaling/start-point rolls. Strong non-convex boundaries are a
+known domain restriction and fail explicitly with `RuntimeError`.
 
-curve = lambda t: 1.2 * np.exp(1j * t) + 0.1 * np.exp(-2j * t)
-derivative = lambda t: 1.2j * np.exp(1j * t) - 0.2j * np.exp(-2j * t)
-theta = np.linspace(0, 2 * np.pi, 512, endpoint=False)
-selection = solve_sliding_boundary(curve, derivative)
-boundary = curve(selection.parameter(theta))
-print(selection.diagnostics["accepted"])
-```
-
-### PDE engine (`method="pde"`)
-
-`method="pde"` combines the exterior one-sided Fourier selector
-(`hbs.boundary_selection`) with the interior flat-metric PDE
-`Δu = 0, κ + ∂ₙu = eᵘ`, then applies the paper's M1 centering
-`Σ Φ₁⁻¹(z_k)=0` on the full collocation grid. It does not use the
-harmonic-measure density.
-
-After M1 alignment it matches the harmonic-measure engine up to a source-circle
-rotation: welding rms 8e-4° / 0.35° / 8e-6° and μ rms 0.0009 / 0.018 / 8e-7 on
-bent-lobe / asymmetric-dent3 / ellipse. Rotation, translation, scaling and
-start-point rolls are invariant. The solver is local: strong non-convex boundaries
-(e.g. `cos t + 0.3 cos 2t + i(sin t + 0.2 sin 3t)`) can leave the interior Robin
-residual at ~0.13; the engine then raises `RuntimeError` explicitly instead of
-silently degrading. Low-level entry: `hbs.pde.pde_welding` (default `n=96`,
-selector `max_modes=192`).
+See [`docs/pde-engine.md`](docs/pde-engine.md) for the equations, diagnostics,
+measured agreement, performance, and the full domain-restriction note.
 
 ### Fixed-complete-circle TBS (`hbs.tbs`)
 

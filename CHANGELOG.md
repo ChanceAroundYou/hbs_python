@@ -72,7 +72,9 @@ version newer than PyPI's latest describe work that is on `main` only.
 - The solver is **local** (damped Gauss–Newton): callers should use Fourier-order
   continuation via `initial` and read the dense residual / monotonicity diagnostics;
   `accepted` is not a continuous certificate.
-- Also exported: `SlidingBoundaryProblem` and `parameter_basis` for advanced use.
+- Public exports are `BoundarySelection` and `solve_sliding_boundary`;
+  `SlidingBoundaryProblem` and `parameter_basis` are internal helpers
+  (`_SlidingBoundaryProblem`, `_parameter_basis`).
 - No version bump here; release numbering is left to the release that ships the
   `harmonic_measure` rename above.
 
@@ -95,8 +97,11 @@ version newer than PyPI's latest describe work that is on `main` only.
 - Local solver with a known domain restriction: strong non-convex boundaries
   (e.g. `cos t + 0.3 cos 2t + i(sin t + 0.2 sin 3t)`) can leave the Robin residual
   at ~0.13 and raise `RuntimeError` explicitly.
-- `pde_welding` defaults to `n=96` (dense `n=512` is ~7 s/call on the development
-  machine) and caps the boundary selector at `max_modes=192`.
+- `pde_welding` defaults to `n=96` and caps the boundary selector at
+  `max_modes=192`. On a six-shape same-benchmark comparison at the public
+  `density=0.01, circle_point_num=500` grid, `n=512` did not change reconstruction
+  fidelity measurably and was 1.6× slower at the median (up to 2.8× worst case), so
+  `n=96` remains the default; details are in `docs/pde-engine.md`.
 - Tests: `tests/test_pde_prototype.py`, plus `pde` in the forward-invariance and
   engine-dispatch suites.
 
