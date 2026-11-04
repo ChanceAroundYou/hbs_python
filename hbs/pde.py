@@ -39,8 +39,8 @@ M1 圆盘自同构居中，之后与 :mod:`hbs.harmonic_measure` 在源圆旋转
 ## 已知域外输入
 
 强非凸边界可能让内域 Robin 方程停在局部解：研究仓的 ``_oval``
-（``cos t + 0.3 cos 2t + i(sin t + 0.2 sin 3t)``）在 n=96 时 Robin 残差约
-0.13，引擎显式失败，不静默降级。需要这类形状时请换 ``method`` 或先平滑。
+（``cos t + 0.3 cos 2t + i(sin t + 0.2 sin 3t)``）在默认 n=128 下 Robin
+残差仍超限，引擎显式失败，不静默降级。需要这类形状时请换 ``method`` 或先平滑。
 """
 
 from __future__ import annotations
@@ -131,7 +131,7 @@ def solve_metric_trace(
     Robin 残差 ``< robin_tolerance``（默认 1e-6）、归一化矩
     ``< moment_tolerance``（默认 1e-8）、增广乘子范数
     ``< augmentation_tolerance``（默认 1e-6）。``pde_welding`` 用 1e-3 的
-    宽松阈值，因为 n=96 时硬形状的 Robin 残差约 1e-4，而 μ 与 n=512 一致。
+    宽松阈值，因为较低 n 时硬形状的 Robin 残差约 1e-4，而 μ 与高 n 一致。
     """
     if n % 2:
         raise ValueError("n must be even")
