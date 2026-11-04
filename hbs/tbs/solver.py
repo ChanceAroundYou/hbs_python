@@ -17,18 +17,31 @@ proof, not a continuum T-map, and carries no certificate: the independent
 upper bound (interval enclosures of a composed circle map) and lower bound
 (Radau/Schiffer circle integrals) live in the separate certification stack.
 Mesh-limit and convergence-in-refinement claims need their own evidence.
+
+The optional ``initialization="lse"`` path globalizes the start with a
+log-sum-exp surrogate and keeps every stage only if it is feasible and does
+not raise the exact peak. It is a different candidate than the plain Tutte
+start: the value it returns is not bit-identical, so it is off by default and
+each use has to be recorded against its own baseline.
 """
 from __future__ import annotations
 
 from time import perf_counter
 
 import numpy as np
-from scipy.optimize import linprog
+from scipy.optimize import linprog, minimize
 from scipy.sparse import coo_matrix, csr_matrix, hstack
 
 from .boundary import LocalC2Boundary
 from .geometry import (disk_mesh, face_fields, face_gradients, face_state,
                        regularized_target_boundary, tutte_initial_map)
+
+# Beta ladder for the log-sum-exp cold start. The recorded probes put the last
+# useful gain at 1e6: beyond that the exact peak moved by less than 1e-6 while
+# the stage cost kept growing.
+LSE_BETAS = (16, 64, 256, 1024, 4096, 16384, 65536, 262144, 1048576)
+LSE_ITERATIONS = 200
+LSE_MAX_BISECTIONS = 30
 
 
 def _face_constraints(x, *, values_template, faces, gx, gy, n_interior,
@@ -115,6 +128,136 @@ def _linear_minimax_step(ratios, gradients, radius, *, feasibility_tolerance,
     }
 
 
+def _lse_context(z, faces, gx, gy, n_interior, values):
+    """Cached quantities for the smooth-surrogate stages."""
+    fz, fbar, _ = face_fields(values, faces, gx, gy)
+    return {"z": np.asarray(z), "faces": np.asarray(faces),
+            "gx": gx, "gy": gy, "n_interior": int(n_interior),
+            "values": np.asarray(values, dtype=complex),
+            "ratio_scales": np.maximum(np.abs(fz)**2 + np.abs(fbar)**2, 1e-12)}
+
+
+def _lse_evaluate(x, context):
+    """Exact face moduli, their gradients in the interior coordinates, min J."""
+    n_interior = context["n_interior"]
+    values = context["values"].copy()
+    values[:n_interior] = x[:n_interior] + 1j*x[n_interior:2*n_interior]
+    ratios, jacobian = face_state(values, context["faces"], context["gx"],
+                                  context["gy"])
+    _, constraint_jacobian = _face_constraints(
+        np.r_[x[:n_interior], x[n_interior:2*n_interior], 0.0],
+        values_template=values, faces=context["faces"], gx=context["gx"],
+        gy=context["gy"], n_interior=n_interior,
+        ratio_scales=context["ratio_scales"])
+    return ratios, (-constraint_jacobian[:, :-1]).tocsr(), float(np.min(jacobian))
+
+
+def _softmax(beta, ratios):
+    """Softmax weights of ``beta*r_f`` and the smooth maximum ``F_beta``."""
+    shifted = beta*(ratios - np.max(ratios))
+    weights = np.exp(shifted)
+    total = float(weights.sum())
+    return weights/total, float(np.max(ratios) + np.log(total)/beta)
+
+
+def _lse_stage(x, context, beta, max_iterations):
+    """One L-BFGS stage on ``F_beta = log(sum exp(beta*r_f))/beta``.
+
+    ``F_beta`` is an upper surrogate for ``max_f r_f``; the stage never
+    reports the surrogate as a result, only the point it reaches.
+    """
+    worst = {"trial": np.inf, "accepted": np.inf}
+
+    def objective(point):
+        ratios, gradients, minimum_jacobian = _lse_evaluate(point, context)
+        weights, value = _softmax(beta, ratios)
+        worst["trial"] = min(worst["trial"], minimum_jacobian)
+        return value, np.asarray(gradients.T @ weights).ravel()
+
+    def track(point):
+        _, _, minimum_jacobian = _lse_evaluate(point, context)
+        worst["accepted"] = min(worst["accepted"], minimum_jacobian)
+
+    started = perf_counter()
+    result = minimize(objective, x, jac=True, method="L-BFGS-B", callback=track,
+                      options={"maxiter": max_iterations,
+                               "maxfun": 20*max_iterations, "ftol": 0.0,
+                               "gtol": 1e-12, "maxcor": 20})
+    ratios, _, minimum_jacobian = _lse_evaluate(result.x, context)
+    weighted, value = _softmax(beta, ratios)
+    return result.x, {
+        "beta": float(beta), "seconds": float(perf_counter() - started),
+        "iterations": int(result.nit), "evaluations": int(result.nfev),
+        "exact_peak": float(np.max(ratios)),
+        "surrogate_value": value,
+        "surrogate_gap": float(value - np.max(ratios)),
+        "minimum_jacobian": float(minimum_jacobian),
+        "worst_min_jacobian_accepted": float(worst["accepted"]),
+        "worst_min_jacobian_trial": float(worst["trial"]),
+        "effective_active_faces": float(1.0/np.sum(weighted**2)),
+    }
+
+
+def _lse_initial_map(z, faces, gx, gy, n_interior, start, *, betas, iterations,
+                     max_bisections=LSE_MAX_BISECTIONS):
+    """Smooth-surrogate cold start: beta ladder with a monotone feasible filter.
+
+    Every stage is checked at its endpoint before it is kept: the point must be
+    a feasible P1 map and must not raise the exact peak. A stage that fails is
+    retracted along the segment from the previous accepted point by halving,
+    and dropped if even the smallest fraction fails. Without that filter a
+    finite-beta stage can walk off a converged minimax point (recorded on the
+    archived all-face start), because the surrogate's minimizer is not the
+    nonsmooth stationary point.
+
+    Within a stage the optimizer visits trial points that may fold; only the
+    accepted iterates and the stage endpoints are constrained here.
+    """
+    context = _lse_context(z, faces, gx, gy, n_interior, start)
+    x = np.r_[start[:n_interior].real, start[:n_interior].imag]
+    ratios, _, minimum_jacobian = _lse_evaluate(x, context)
+    accepted_peak = float(np.max(ratios))
+    if not np.isfinite(accepted_peak) or minimum_jacobian <= 0.0:
+        raise ValueError("log-sum-exp start must be a feasible P1 QC map")
+    history = []
+    total = 0.0
+    for beta in betas:
+        candidate, info = _lse_stage(x, context, beta, iterations)
+        total += info["seconds"]
+        fraction, endpoint = 1.0, None
+        for _ in range(max_bisections + 1):
+            trial = x + fraction*(candidate - x)
+            trial_ratios, _, trial_jacobian = _lse_evaluate(trial, context)
+            trial_peak = float(np.max(trial_ratios))
+            feasible = bool(np.isfinite(trial_peak) and trial_jacobian > 0.0
+                            and trial_peak < 1.0)
+            if feasible and trial_peak <= accepted_peak*(1.0 + 1e-14):
+                endpoint = (trial_peak, float(trial_jacobian))
+                break
+            fraction *= 0.5
+        info["stage_seconds"] = info["seconds"]
+        info["accepted_fraction"] = fraction
+        info["accepted_peak"] = endpoint[0] if endpoint else accepted_peak
+        info["stage_retained"] = endpoint is not None
+        if endpoint is None:
+            info["minimum_jacobian_at_endpoint"] = minimum_jacobian
+        else:
+            x, accepted_peak = x + fraction*(candidate - x), endpoint[0]
+            minimum_jacobian = endpoint[1]
+            info["minimum_jacobian_at_endpoint"] = endpoint[1]
+        history.append(info)
+    values = start.copy()
+    values[:n_interior] = x[:n_interior] + 1j*x[n_interior:2*n_interior]
+    return values, {"betas": [float(beta) for beta in betas],
+                    "iterations": int(iterations),
+                    "stages": history,
+                    "final_peak": accepted_peak,
+                    "final_minimum_jacobian": float(minimum_jacobian),
+                    "total_seconds": total,
+                    "stages_retained": int(sum(row["stage_retained"]
+                                               for row in history))}
+
+
 def _update_trust_radius(radius, *, maximum_radius, minimum_radius, ratio,
                          step_boundary_fraction, accepted_fraction):
     """Update the trust radius, adapting to the accepted dyadic backtrack."""
@@ -136,9 +279,13 @@ def _update_trust_radius(radius, *, maximum_radius, minimum_radius, ratio,
 
 def _minimize_p1(z, faces, boundary_values, initial_values, *, n_interior,
                  max_steps, initial_radius, minimum_radius, maximum_radius,
-                 max_backtracks, armijo, relative_stationarity,
-                 feasibility_tolerance, lp_method):
+                 max_backtracks, armijo, relative_stationarity, peak_window,
+                 peak_tolerance, feasibility_tolerance, lp_method):
     started = perf_counter()
+    if peak_window < 1:
+        raise ValueError("peak_window must be at least 1")
+    if not np.isfinite(peak_tolerance) or peak_tolerance < 0.0:
+        raise ValueError("peak_tolerance must be finite and non-negative")
     values = np.asarray(initial_values, dtype=complex).copy()
     trace = np.asarray(boundary_values, dtype=complex)
     if values.shape != z.shape or np.max(np.abs(values[n_interior:] - trace)) > 1e-12:
@@ -148,6 +295,7 @@ def _minimize_p1(z, faces, boundary_values, initial_values, *, n_interior,
     if np.min(jacobian) <= 0.0 or np.max(ratios) >= 1.0:
         raise ValueError("start is not a feasible P1 QC map")
     start_k = float(np.max(ratios))
+    accepted_peaks = [start_k]
     fz, fbar, _ = face_fields(values, faces, gx, gy)
     ratio_scales = np.maximum(np.abs(fz)**2 + np.abs(fbar)**2, 1e-12)
     radius = float(initial_radius)
@@ -254,6 +402,19 @@ def _minimize_p1(z, faces, boundary_values, initial_values, *, n_interior,
                        "radius_after": radius})
         records.append(record)
 
+        # Uniform progress gate: the model-based ratio above decays far too
+        # slowly to fire in any practical budget, so the observable objective
+        # gets its own rule -- stop once the peak fell by less than
+        # ``peak_tolerance`` (relative) across ``peak_window`` accepted steps.
+        accepted_peaks.append(accepted_record["k_after"])
+        if peak_tolerance > 0.0 and len(accepted_peaks) > peak_window:
+            earlier = accepted_peaks[-peak_window - 1]
+            relative_decrease = (earlier - accepted_peaks[-1])/earlier
+            if relative_decrease <= peak_tolerance:
+                record["peak_window_relative_decrease"] = relative_decrease
+                stop_reason = "relative_peak_change_below_threshold"
+                break
+
     final_ratios, final_jacobian = face_state(values, faces, gx, gy)
     final_k = float(np.max(final_ratios))
     return values, {
@@ -276,7 +437,10 @@ def solve_tbs(beta=None, alpha=None, *, trace=None, spacing=0.1, boundary_count=
               initial_values=None, mesh=None, max_steps=200,
               initial_radius=1e-4, minimum_radius=1e-12, maximum_radius=1e-3,
               max_backtracks=20, armijo=1e-4, relative_stationarity=1e-5,
-              feasibility_tolerance=1e-10, lp_method="highs-ipm"):
+              peak_window=25, peak_tolerance=0.0,
+              feasibility_tolerance=1e-10, lp_method="highs-ipm",
+              initialization="tutte", lse_betas=None,
+              lse_iterations=LSE_ITERATIONS):
     """Minimize ``max_face |mu|`` over P1 self-maps of the disk, trace frozen.
 
     Parameters
@@ -295,14 +459,34 @@ def solve_tbs(beta=None, alpha=None, *, trace=None, spacing=0.1, boundary_count=
     initial_values, mesh
         Optional warm start and ``(z, n_interior, theta, faces)`` mesh. The
         default is a fresh mesh plus a Tutte embedding of the target polygon.
+    initialization, lse_betas, lse_iterations
+        ``"tutte"`` (default) starts the all-face LP steps at the Tutte
+        embedding, exactly as before. ``"lse"`` first runs the smooth
+        surrogate ``F_beta = log(sum_f exp(beta*r_f))/beta`` along a beta
+        ladder and hands its endpoint to the LP steps. Each ladder stage is
+        kept only if its endpoint is a feasible P1 map and does not raise the
+        exact peak, otherwise the stage is retracted by bisection; the exact
+        peak therefore never increases during the cold start. The surrogate is
+        a globalization aid, not a minimax solver: the reported ``final_k`` is
+        always the exact ``max_f r_f`` of the returned map. ``lse_betas``
+        defaults to :data:`LSE_BETAS`; ``lse_iterations`` is the L-BFGS budget
+        per stage.
+    peak_window, peak_tolerance
+        Uniform peak-progress stop rule. Once ``peak_window`` accepted steps
+        have accumulated, stop when the peak modulus fell by less than
+        ``peak_tolerance`` (relative) over that window, and report
+        ``stop_reason="relative_peak_change_below_threshold"``.
+        ``peak_tolerance=0`` (the default) disables the rule and leaves the
+        step budget in charge.
 
     Returns
     -------
     dict
         ``values`` (complex mapped vertices), ``z``/``faces``/``n_interior``/
         ``theta`` (the mesh actually used), ``start_k``/``final_k`` (peak
-        ``|mu|``), ``boundary_polygon`` diagnostics, per-step ``history`` and
-        the solver ``stop_reason``.
+        ``|mu|``), ``boundary_polygon`` diagnostics, per-step ``history``,
+        ``initialization`` (the cold-start record, including the LSE stages
+        when used) and the solver ``stop_reason``.
 
     Notes
     -----
@@ -311,6 +495,17 @@ def solve_tbs(beta=None, alpha=None, *, trace=None, spacing=0.1, boundary_count=
     certification stack, not here. Sub-ULP continuation in exact rational
     arithmetic is likewise a separate research tool; this solver stops at the
     float64 trust-radius floor and reports why.
+
+    ``stop_reason`` is one of ``iteration_limit``, ``linear_subproblem_failure``,
+    ``relative_model_descent_below_threshold``,
+    ``trust_radius_below_coordinate_roundoff_floor``,
+    ``trust_radius_below_minimum_after_rejections`` or
+    ``relative_peak_change_below_threshold``. The model-descent ratio decays
+    by only about two orders over hundreds of steps, so in practice the
+    default 1e-5 gate almost never fires; the peak-window rule measures the
+    objective itself and is the one to use when a stated accuracy, rather
+    than a step budget, should end the solve. Either way the tolerance is an
+    accuracy choice, not a stationarity certificate.
     """
     if trace is None and alpha is None and hasattr(beta, "angle"):
         trace, beta = beta, None
@@ -339,12 +534,29 @@ def solve_tbs(beta=None, alpha=None, *, trace=None, spacing=0.1, boundary_count=
         if initial.shape != z.shape:
             raise ValueError("initial_values must have one entry per mesh vertex")
 
+    if initialization not in ("tutte", "lse"):
+        raise ValueError("initialization must be 'tutte' or 'lse'")
+    lse_record = None
+    cold_start_seconds = 0.0
+    if initialization == "lse":
+        betas = LSE_BETAS if lse_betas is None else tuple(float(b) for b in lse_betas)
+        if not betas or min(betas) <= 0.0:
+            raise ValueError("lse_betas must be a non-empty sequence of positives")
+        gx, gy, _ = face_gradients(z, faces)
+        started = perf_counter()
+        initial, lse_record = _lse_initial_map(
+            z, faces, gx, gy, n_interior, initial, betas=betas,
+            iterations=int(lse_iterations))
+        cold_start_seconds = perf_counter() - started
+        lse_record["seconds_including_setup"] = cold_start_seconds
+
     values, result = _minimize_p1(
         z, faces, boundary_polygon, initial, n_interior=n_interior,
         max_steps=max_steps, initial_radius=initial_radius,
         minimum_radius=minimum_radius, maximum_radius=maximum_radius,
         max_backtracks=max_backtracks, armijo=armijo,
         relative_stationarity=relative_stationarity,
+        peak_window=peak_window, peak_tolerance=peak_tolerance,
         feasibility_tolerance=feasibility_tolerance, lp_method=lp_method)
 
     result.update({
@@ -364,8 +576,19 @@ def solve_tbs(beta=None, alpha=None, *, trace=None, spacing=0.1, boundary_count=
             "maximum_radius": maximum_radius,
             "max_backtracks": max_backtracks, "armijo": armijo,
             "relative_stationarity": relative_stationarity,
+            "peak_window": peak_window, "peak_tolerance": peak_tolerance,
             "feasibility_tolerance": feasibility_tolerance,
-            "lp_method": lp_method},
+            "lp_method": lp_method,
+            "initialization": initialization,
+            "lse_betas": None if lse_record is None else lse_record["betas"],
+            "lse_iterations": int(lse_iterations)},
+        "initialization": {"method": initialization,
+                           "seconds": cold_start_seconds, "lse": lse_record},
+        "cold_start_seconds": cold_start_seconds,
+        # ``wall_seconds`` keeps its original meaning (the all-face LP phase
+        # only) so recorded baselines stay comparable; the cold start is timed
+        # separately above.
+        "total_wall_seconds": result["wall_seconds"] + cold_start_seconds,
         "scope": ("local finite-P1 minimax candidate on a frozen complete-circle "
                   "trace; no global, continuum or mesh-limit claim; no certificate"),
     })

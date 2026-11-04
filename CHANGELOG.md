@@ -10,12 +10,15 @@ version newer than PyPI's latest describe work that is on `main` only.
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-11-04
+
 ### Added — `hbs.tbs`: fixed-complete-circle TBS solver
 
 - `solve_tbs(beta=None, alpha=None, *, trace=None, spacing=0.1, boundary_count=128,
   initial_values=None, mesh=None, max_steps=200, initial_radius=1e-4,
   minimum_radius=1e-12, maximum_radius=1e-3, max_backtracks=20, armijo=1e-4,
-  relative_stationarity=1e-5, feasibility_tolerance=1e-10, lp_method="highs-ipm")`
+  relative_stationarity=1e-5, peak_window=25, peak_tolerance=0.0,
+  feasibility_tolerance=1e-10, lp_method="highs-ipm")`
   minimizes `max_face |mu|` over orientation-preserving piecewise-linear self-maps of
   the disk with the complete-circle welding frozen. Each step linearizes every face
   modulus, solves the all-face sparse linear minimax problem (HiGHS interior point)
@@ -34,17 +37,39 @@ version newer than PyPI's latest describe work that is on `main` only.
   enclosure) and lower (RS circle integrals) bounds live outside this package.
 - `stop_reason` values: `iteration_limit`, `relative_model_descent_below_threshold`,
   `trust_radius_below_coordinate_roundoff_floor`,
-  `trust_radius_below_minimum_after_rejections`, `linear_subproblem_failure`.
-  `iteration_limit` means the step budget ran out — a budget, not a convergence
-  verdict.
+  `trust_radius_below_minimum_after_rejections`, `linear_subproblem_failure`,
+  `relative_peak_change_below_threshold`. `iteration_limit` means the step budget
+  ran out — a budget, not a convergence verdict.
+- Peak-progress stop rule (`peak_window`, `peak_tolerance`, off by default): once
+  `peak_window` accepted steps have accumulated, stop when the peak modulus fell by
+  less than `peak_tolerance` relative over that window, and report
+  `relative_peak_change_below_threshold`. It exists because the model-descent ratio
+  decays by only about two orders over 600 steps (2.3e-1 -> 5.9e-3 against a 1e-5
+  gate), so that gate cannot fire in any practical budget; the peak rule measures the
+  objective itself. With `peak_window=25, peak_tolerance=1e-3` three synthetic
+  welding tables stopped at 393/586/496 accepted steps with peaks within 0.67%/0.03%
+  /0.31% of their 600-step values (research record
+  `runs/TBS加速_2026-11-04/tbs_iteration_policy.json`). The tolerance is an accuracy
+  choice, not a stationarity certificate; `peak_tolerance=0` keeps the old behavior
+  bit-identically.
+- Cold start (`initialization="lse"`, off by default): before the first LP step, run a
+  log-sum-exp ladder `F_beta = log(sum_f exp(beta*r_f))/beta` with L-BFGS-B over
+  `LSE_BETAS` (16 … 1048576, `lse_iterations` per stage). A stage is kept only if its
+  endpoint is a feasible P1 map and does not raise the exact peak; otherwise it is
+  retracted toward the previous accepted point by halving (up to 30 times) and dropped
+  if even the smallest fraction fails. Without that filter a finite-beta stage can walk
+  off a converged minimax point (archived all-face start: peak 0.363498 -> 0.364842);
+  with it the same start gives 0.363497903 and 20 LP steps reach 0.363453510. On six
+  recorded end-to-end cases LSE plus 20 LP steps is below the recorded 300-step Tutte
+  run everywhere (1.21%-19.31%), and 4 of the 6 are also faster. This is a different
+  candidate, not a bit-identical acceleration: `initialization="tutte"` (the default)
+  keeps every recorded number bitwise (research record
+  `runs/TBS加速_2026-11-04/tbs_lse_baseline.json`).
 - Measured on a 120-point boundary with a 500-point welding, 300 steps: 3.0-5.5 s at
   421 vertices / 712 faces and 7.8-26.7 s at 1465 vertices / 2672 faces (one
   development machine; the asymmetric oval went from |mu| 0.527 to 0.196). A 3000-step
   run still ended at `iteration_limit`.
 - Tests: `tests/test_tbs.py`.
-- No version bump here; release numbering is left to the release that ships the
-  `harmonic_measure` rename.
-
 
 ### Added — `hbs.boundary_selection`: 自由边界对应选择
 
@@ -75,8 +100,6 @@ version newer than PyPI's latest describe work that is on `main` only.
 - Public exports are `BoundarySelection` and `solve_sliding_boundary`;
   `SlidingBoundaryProblem` and `parameter_basis` are internal helpers
   (`_SlidingBoundaryProblem`, `_parameter_basis`).
-- No version bump here; release numbering is left to the release that ships the
-  `harmonic_measure` rename above.
 
 ### Added — `method="pde"`: exterior Fourier selection + interior flat-metric PDE
 
@@ -99,9 +122,8 @@ version newer than PyPI's latest describe work that is on `main` only.
   at ~0.13 and raise `RuntimeError` explicitly.
 - `pde_welding` defaults to `n=128` and caps the boundary selector at
   `max_modes=192`. `n=128` is the first accuracy plateau in a harmonic-measure
-  comparison; `n=96` remains the fast option and `n=80` the minimum safe value
-  (`n=64` fails the interior gate on `asym_dent3`). Raising `n` beyond 128 does
-  not improve reconstruction fidelity. Details are in `docs/pde-engine.md`.
+  comparison; raising `n` beyond 128 does not improve reconstruction fidelity.
+  Details are in `docs/pde-engine.md`.
 - Speed: the PDE selector now uses `min_modes=64`, `target_residual=3e-4` and an
   absolute early-stop floor `2e-8` instead of always running to 192; `n >= 256`
   warm-starts from an `n=96` solve. On the same six-shape benchmark `asym_dent3`
@@ -118,6 +140,8 @@ version newer than PyPI's latest describe work that is on `main` only.
 - Tests: `tests/test_pde_prototype.py`, plus `pde` in the forward-invariance and
   engine-dispatch suites.
 
+## [2.4.0] — 2026-11-03
+
 ### Changed — BREAKING: `angular` engine renamed to `harmonic_measure`
 
 - `get_hbs(..., method=...)` and `get_conformal_welding(...)`: `"angular"` becomes
@@ -131,11 +155,6 @@ version newer than PyPI's latest describe work that is on `main` only.
 - Chinese prose says 调和测度 instead of 角速度. Entries below this one describe
   releases where the engine was still named `angular`; that wording is historical
   and is intentionally not rewritten.
-- Version numbering is left to the release that ships this rename: the working tree
-  also carries the unreleased 2.4.0 `hbs.volumetric` change, so `hbs.__version__`
-  was not bumped here.
-
-## [2.4.0] — 2026-11-03
 
 ### Added — `hbs.volumetric`: 三维固定边界迹的离散拟共形原型
 
@@ -790,6 +809,8 @@ no smooth reparameterization that fixes it.
   `post_deepen` parameter was removed entirely.
 - Nothing else in the public API changed.
 
+[2.5.0]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.4.0...v2.5.0
+[2.4.0]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.3.4...v2.4.0
 [2.3.4]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.3.3...v2.3.4
 [2.3.3]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.3.2...v2.3.3
 [2.3.2]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.3.1...v2.3.2

@@ -15,10 +15,10 @@ bound, acceptance replay) are not part of this package.
 from .boundary import FourierCircleTrace, LocalC2Boundary
 from .geometry import (disk_mesh, face_fields, face_gradients, face_state,
                        regularized_target_boundary, tutte_initial_map)
-from .solver import solve_tbs
+from .solver import LSE_BETAS, solve_tbs
 
 __all__ = [
-    "solve_tbs", "LocalC2Boundary", "FourierCircleTrace", "disk_mesh",
+    "solve_tbs", "LSE_BETAS", "LocalC2Boundary", "FourierCircleTrace", "disk_mesh",
     "regularized_target_boundary", "tutte_initial_map",
     "face_gradients", "face_fields", "face_state",
 ]

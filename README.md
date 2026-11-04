@@ -194,6 +194,20 @@ result["final_k"], result["accepted_steps"], result["stop_reason"]
   `iteration_limit` when the step budget runs out — a budget, not a convergence
   verdict — while `relative_model_descent_below_threshold` and
   `trust_radius_below_coordinate_roundoff_floor` report why a run stopped early.
+- Stop rule: pass `peak_tolerance` (with `peak_window`, default 25) to end the solve
+  on measured progress instead of a step count — stop once the peak `|μ|` fell by less
+  than that fraction over the last `peak_window` accepted steps, reported as
+  `relative_peak_change_below_threshold`. The model-descent ratio decays far too
+  slowly for its 1e-5 gate to ever fire, so this is the gate to use when a stated
+  accuracy should end the run. It is off by default (`peak_tolerance=0`), which keeps
+  the recorded candidates reproducible; the tolerance is an accuracy choice, not a
+  stationarity certificate.
+- Cold start: `initialization="lse"` runs a log-sum-exp ladder (`LSE_BETAS`,
+  `lse_iterations` per stage) before the first LP step. Each stage is kept only if it
+  ends on a feasible P1 map and does not raise the exact peak, so it never makes a good
+  starting point worse; `initialization="tutte"` is the default and reproduces the
+  recorded numbers bitwise. The LSE start is a different candidate: on the recorded
+  cases it reached a lower peak than the 300-step Tutte run within 20 LP steps.
 
 ### 3D fixed-trace prototype (`hbs.volumetric`)
 
