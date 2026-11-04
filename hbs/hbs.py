@@ -45,16 +45,17 @@ def get_hbs(
 
     只有**引擎**按 `method` 切换，之后完全共用 `hbs._pipeline`。
 
-    ## 两个引擎
+    ## 三个引擎
 
     | `method` | 算法 | 特点 |
     |---|---|---|
     | `"harmonic_measure"`（默认） | 边界层对数单层势 | 光滑曲线精度高；要求内外调和测度密度严格为正 |
     | `"zipper"` | Bishop/Marshall zipper | 只依赖点序列，对不规则采样宽容；高对称形状有结构性退化 |
+    | `"pde"` | 外域 Fourier 选择 + 内域平坦度量 PDE + M1 居中 | 不经过调和测度密度；局部求解器，强非凸边界可能显式失败 |
 
-    **两套实现互不替补**：任一引擎在自己的输入阶梯（原始 → 重采样 → 逐级平滑）上
+    **各实现互不替补**：任一引擎在自己的输入阶梯（原始 → 重采样 → 逐级平滑）上
     全部失败时抛 `RuntimeError`，不会静默换到另一条。要换引擎请显式改 `method`。
-    两条路径的焊接只相差源圆旋转（`hbs.weld_compare` 度量，N=600 时
+    各路径的焊接只相差源圆旋转（`hbs.weld_compare` 度量，N=600 时
     `rms(δ−S) ≈ 0.1°`），因此 μ 在扣除该旋转后一致到离散误差。
 
     ## 参数
@@ -64,7 +65,7 @@ def get_hbs(
     :param `density`: 盘网格密度；与 `circle_point_num` 一起定位缓存的网格
     :param `disk`: 显式 `DiskMesh`；给定则 `density` 与 `circle_point_num` 只影响
         焊接的采样点数，网格本身原样使用
-    :param `method`: `"harmonic_measure"`（默认）或 `"zipper"`，见上表
+    :param `method`: `"harmonic_measure"`（默认）、`"zipper"` 或 `"pde"`，见上表
     :param `normalize`: 源圆旋转规范，见下
     :param `validate_reconstruction`: 打开「重建合法性门 + 一次性粗网格回退」，
         见下节；默认关闭
@@ -180,10 +181,10 @@ def _solve_hbs(
     normalize: str,
 ) -> HBSResult:
     """一次完整的 焊接 → FEM 延拓 → μ → 规范，不含合法性门。"""
-    # 调和测度引擎自己按弧长拟合样条，保留原始输入点比先重采样更准；
+    # 调和测度 / PDE 引擎自己按弧长拟合样条，保留原始输入点比先重采样更准；
     # zipper 依赖均匀弧长采样避免 NaN。见 `prepare_boundary` 文档。
     prepared = prepare_boundary(
-        np.asarray(bound, float), circle_point_num, resample=(method != "harmonic_measure")
+        np.asarray(bound, float), circle_point_num, resample=(method == "zipper")
     )
     welding_result = ENGINES[method](prepared, circle_point_num)
     disk, fem = resolve_disk(disk, density, circle_point_num)

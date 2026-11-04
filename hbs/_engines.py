@@ -13,12 +13,13 @@
   `tests/test_pipeline_contract.py` 钉住）：重采样是引擎自己的收尾步骤，管线不插值；
 - 焊接之后的一切（M1/M2 之后的 FEM 延拓、μ、I₂）**完全共用** `_pipeline`。
 
-## 两个引擎
+## 三个引擎
 
 | 引擎 | 实现 | 特点 |
 |---|---|---|
 | `"harmonic_measure"` | 边界层对数单层势 → 内外调和测度密度 → 圆相位 | 光滑曲线精度高；要求原始内外密度严格为正 |
 | `"zipper"` | Bishop/Marshall Zipper（Möbius + 开方逐步收缩 slit） | 只依赖点序列，对不规则采样更宽容；对高对称形状有结构性退化 |
+| `"pde"` | 外域单侧 Fourier 条件 + 内域平坦度量 PDE + M1 居中 | 不经过调和测度密度；局部求解器，验收看 PDE/选择器原始残差 |
 
 **互不替补**：任一引擎在自己的输入阶梯上全部失败时抛错，不会静默换到另一个。
 需要另一条路径请显式改 `method`。
@@ -144,8 +145,21 @@ def zipper(bound: np.ndarray, circle_num: int) -> WeldingResult:
     )
 
 
+def pde(bound: np.ndarray, circle_num: int) -> WeldingResult:
+    """PDE 引擎：外域 Fourier 选择 + 内域平坦度量 PDE + M1 居中。"""
+    from hbs.pde import pde_welding
+
+    return _first_success(
+        "pde", bound, circle_num,
+        lambda candidate: ConformalWelding.from_harmonic_measure(
+            pde_welding(candidate, circle_num=circle_num)
+        ),
+    )
+
+
 #: 引擎注册表。新增引擎只需在这里登记，`get_hbs` / `get_conformal_welding` 自动可用。
 ENGINES: dict[str, Callable[[np.ndarray, int], WeldingResult]] = {
     "harmonic_measure": harmonic_measure,
     "zipper": zipper,
+    "pde": pde,
 }

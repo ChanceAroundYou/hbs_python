@@ -68,8 +68,9 @@ def test_get_hbs_returns_four_tuple_consumed_by_reconstruct():
 
 
 def test_result_reports_engine_and_rung():
+    # 用椭圆覆盖分派契约；`_oval` 对 pde 引擎是非凸硬例（显式失败，见 pde 测试）。
     for method in ENGINES:
-        result = get_hbs_result(_oval(), method=method, **_cfg())
+        result = get_hbs_result(_ellipse(), method=method, **_cfg())
         assert result.engine == method
         assert result.rung == "raw"
 
@@ -202,6 +203,6 @@ def test_degenerate_input_raises(boundary):
 
 
 def test_engine_registry_is_the_single_source_of_truth():
-    assert set(ENGINES) == {"harmonic_measure", "zipper"}
+    assert set(ENGINES) == {"harmonic_measure", "zipper", "pde"}
     for name, fn in ENGINES.items():
         assert callable(fn)

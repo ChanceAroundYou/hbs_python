@@ -46,6 +46,60 @@ version newer than PyPI's latest describe work that is on `main` only.
   `harmonic_measure` rename.
 
 
+### Added — `hbs.boundary_selection`: 自由边界对应选择
+
+- Moved from `HBS-research/src/free_boundary_selection.py`. The first-mode phase is
+  now normalized against the input curve's own first Fourier coefficient, so the
+  selected boundary parameterization is equivariant under rigid rotations; the
+  spectral residual and auto-continuation behavior are unchanged.
+- `solve_sliding_boundary(curve, derivative, modes=None, initial=None,
+  max_iterations=50, tolerance=2e-10, *, continuation=True, max_modes=512,
+  target_residual=2e-7)` selects a parameterization `p` such that
+  `γ ∘ p` has no positive Fourier modes above the first and a positive real first
+  mode — an implicit exterior-conformality condition. It takes no exterior density
+  and no prescribed correspondence `β`.
+- Automatic Fourier continuation: with `modes=None` (default) the solver runs
+  `8 → 16 → 32 → …` until `dense_forbidden_residual < target_residual` or
+  `max_modes`. Supplying `initial` disables automatic continuation. On the
+  research default family this removes the old `modes=96`-from-zero
+  `line_search_stalled` plateau (e.g. `accepted=False`, dense residual
+  8.3e-7–1.4e-4); with the default target `2e-7` all four shapes reach
+  `accepted=True` (dense 3.45e-8–1.40e-11). Tightening to `2e-9` reaches
+  1.6e-13 but costs higher modes (e.g. 512 for the peanut).
+- `BoundarySelection(coefficients, modes, diagnostics)` with
+  `parameter(theta)`; `diagnostics` reports `stop_reason`, iterations, discrete and
+  dense forbidden-mode residuals, dense minimum parameter speed, and `accepted`.
+- The solver is **local** (damped Gauss–Newton): callers should use Fourier-order
+  continuation via `initial` and read the dense residual / monotonicity diagnostics;
+  `accepted` is not a continuous certificate.
+- Also exported: `SlidingBoundaryProblem` and `parameter_basis` for advanced use.
+- No version bump here; release numbering is left to the release that ships the
+  `harmonic_measure` rename above.
+
+### Added — `method="pde"`: exterior Fourier selection + interior flat-metric PDE
+
+- Added `hbs/pde.py` with the trace-only interior solve
+  `Δu = 0, κ + ∂ₙu = eᵘ` and `pde_welding`, which composes the interior conformal
+  angle with `hbs.boundary_selection`.
+- Registered in `ENGINES`: `get_hbs(..., method="pde")` and
+  `get_conformal_welding(..., method="pde")` are available. It does not use the
+  harmonic-measure density; its input ladder fails explicitly rather than switching
+  engines.
+- M1 centering (`Σ Φ₁⁻¹(z_k)=0`) is applied on the full collocation grid after the
+  PDE solve. After source-rotation alignment the engine agrees with
+  `harmonic_measure`: welding rms 8e-4° / 0.35° / 8e-6° and μ rms
+  0.0009 / 0.018 / 8e-7 on bent-lobe / asymmetric-dent3 / ellipse.
+- Rotation covariance: 0.7 rad input rotation leaves the boundary parameterization
+  unchanged (<1e-10) and μ invariant (≈1e-11); translation/scale/start-point rolls
+  also invariant.
+- Local solver with a known domain restriction: strong non-convex boundaries
+  (e.g. `cos t + 0.3 cos 2t + i(sin t + 0.2 sin 3t)`) can leave the Robin residual
+  at ~0.13 and raise `RuntimeError` explicitly.
+- `pde_welding` defaults to `n=96` (dense `n=512` is ~7 s/call on the development
+  machine) and caps the boundary selector at `max_modes=192`.
+- Tests: `tests/test_pde_prototype.py`, plus `pde` in the forward-invariance and
+  engine-dispatch suites.
+
 ### Changed — BREAKING: `angular` engine renamed to `harmonic_measure`
 
 - `get_hbs(..., method=...)` and `get_conformal_welding(...)`: `"angular"` becomes

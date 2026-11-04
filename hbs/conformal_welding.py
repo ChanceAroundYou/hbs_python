@@ -268,9 +268,9 @@ def get_conformal_welding(
     if normalize not in NORMALIZATIONS:
         raise ValueError(f"normalize must be one of {NORMALIZATIONS}, got {normalize!r}")
 
-    # 与 `get_hbs` 保持同一份预处理：调和测度引擎不重采样，zipper 重采样。
+    # 与 `get_hbs` 保持同一份预处理：调和测度 / PDE 不重采样，zipper 重采样。
     prepared = prepare_boundary(
-        np.asarray(bound, float), resample_to, resample=(method != "harmonic_measure")
+        np.asarray(bound, float), resample_to, resample=(method == "zipper")
     )
     # 引擎交回的焊接已经在源圆均匀网格上（`WeldingResult.values`），这里不再
     # 重采样——否则 `normalize="none"` 下会与 `get_hbs` 交回不同状态的焊接。

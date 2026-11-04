@@ -11,6 +11,7 @@ from ._pipeline import (
     HBSResult,
     compare_engines,
 )
+from .boundary_selection import BoundarySelection, solve_sliding_boundary
 from .conformal_welding import ConformalWelding, get_conformal_welding
 from .gauges import GAUGES, GaugeChoice, select_gauge
 from .hbs import get_hbs, get_hbs_result, reconstruct_from_hbs
@@ -67,6 +68,9 @@ __all__ = [
     # 共形焊接
     "ConformalWelding",
     "get_conformal_welding",
+    # 自由边界对应选择（PDE 路线）
+    "BoundarySelection",
+    "solve_sliding_boundary",
     # 拟共形
     "get_beltrami_coefficient",
     "lsqc_solver",

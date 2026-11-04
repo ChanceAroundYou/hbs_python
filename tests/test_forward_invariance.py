@@ -1,9 +1,9 @@
-"""前向不变性契约：两个引擎 × 刚体变换 / 起始点 / 采集密度。
+"""前向不变性契约：三个引擎 × 刚体变换 / 起始点 / 采集密度。
 
 与 `test_zipper_invariance.py` 的分工：那个文件钉 zipper 的历史修复（8 轮 λ 循环、
 弧长锚点），只测 zipper 且只用 `normalize="i2"`。这里测**当前**的公开契约：
 
-1. 旋转 / 平移 / 缩放后焊接与 μ 不变 —— 两个引擎都要，且要覆盖复合变换；
+1. 旋转 / 平移 / 缩放后焊接与 μ 不变 —— 三个引擎都要，且要覆盖复合变换；
 2. 起始点循环移位后 μ **逐位**相同；
 3. 采集密度是**收敛量**不是不变量：加密到细档时应单调逼近。
 
@@ -58,6 +58,12 @@ def _weld(prepared, engine):
         return ConformalWelding.from_harmonic_measure(
             harmonic_measure.harmonic_measure_welding(prepared, circle_num=WELD_N)
         )
+    if engine == "pde":
+        from hbs.pde import pde_welding
+
+        return ConformalWelding.from_harmonic_measure(
+            pde_welding(prepared, circle_num=WELD_N)
+        )
     return zipper_welding_prepared(prepared)
 
 
@@ -87,13 +93,13 @@ _TRANSFORMS = {
 }
 
 
-@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper"])
+@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper", "pde"])
 @pytest.mark.parametrize("name", list(_SHAPES))
 def test_rigid_transform_invariance(disk, engine, name):
     """旋转 / 平移 / 缩放（含复合）后 μ 只剩浮点噪声。
 
     阈值 1e-6 相对：实测 harmonic_measure 是 1e-11、zipper 是 1e-9，留足两个量级余量。
-    这条同时覆盖"两个引擎都协变"——只测一个会漏掉某条路径单独退化。
+    这条同时覆盖"三个引擎都协变"——只测一个会漏掉某条路径单独退化。
     """
     b = _boundary(_SHAPES[name])
     base = _mu(b, engine, disk)
@@ -101,7 +107,7 @@ def test_rigid_transform_invariance(disk, engine, name):
         assert _rel(_mu(fn(b), engine, disk), base) < 1e-6, f"{engine}/{label}"
 
 
-@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper"])
+@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper", "pde"])
 def test_c0_gauge_is_forward_invariant(disk, engine):
     """`normalize="c0"`（无分支锚 `C₀ = M₁·conj(M₃)`）也必须在刚体变换下不变。
 
@@ -121,7 +127,7 @@ def test_c0_gauge_is_forward_invariant(disk, engine):
         assert _rel(got.mu, base.mu) < 1e-6, f"{engine}/{label}"
 
 
-@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper"])
+@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper", "pde"])
 def test_rigid_transform_leaves_the_welding_alone(engine):
     """焊接 `(x, y)` 本身在刚体变换下不变（不是靠规范吸收）。"""
     b = _boundary(_SHAPES["asym_dent3"])
@@ -134,7 +140,7 @@ def test_rigid_transform_leaves_the_welding_alone(engine):
 
 # --- 2. 起始点 ---
 
-@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper"])
+@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper", "pde"])
 @pytest.mark.parametrize("shift", [1, 37, 211])
 def test_start_point_roll_is_bitwise_invariant(disk, engine, shift):
     """循环移位起点后 μ **逐位**相同（几何锚点只依赖点集）。"""
@@ -145,7 +151,7 @@ def test_start_point_roll_is_bitwise_invariant(disk, engine, shift):
 
 # --- 3. 采集密度是收敛量 ---
 
-@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper"])
+@pytest.mark.parametrize("engine", ["harmonic_measure", "zipper", "pde"])
 def test_density_refinement_converges(disk, engine):
     """加密输入采样时，μ 单调逼近最细档（相对差随 n 下降）。
 

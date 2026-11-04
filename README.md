@@ -73,8 +73,9 @@ normalize="default", validate_reconstruction=False)`
 |---|---|---|
 | `"harmonic_measure"` (default) | boundary-layer logarithmic single-layer potentials | most accurate on smooth curves; needs a strictly positive interior/exterior harmonic-measure density |
 | `"zipper"` | Bishop/Marshall zipper | works from the point sequence alone; more tolerant of irregular sampling; structurally degraded on highly symmetric shapes |
+| `"pde"` | exterior Fourier boundary selection + interior flat-metric PDE (`Δu=0, κ+∂ₙu=eᵘ`) + M1 centering | independent of the harmonic-measure density; local solver; strong non-convex boundaries may fail explicitly |
 
-The two are **independent implementations and never fall back to each other**. An
+The three are **independent implementations and never fall back to each other**. An
 engine that fails retries only inside its own input ladder
 
 ```
@@ -86,7 +87,7 @@ return a degenerate curve, and will not switch engines. The rung that succeeded 
 reported in `HBSResult.rung`: anything other than `"raw"` is a **degraded** result
 (usable, but with fidelity an order of magnitude worse), so surface it to your users.
 
-Both engines share one backend: orientation, geometric anchor and arc-length
+All engines share one backend: orientation, geometric anchor and arc-length
 resampling (`_pipeline.prepare_boundary`, **before** the welding), then FEM harmonic
 extension, `μ` and the gauge (`_pipeline.build_hbs`, **after** it). Each engine hands
 back its boundary values on the uniform source circle, so the backend never
@@ -135,10 +136,57 @@ explicit `disk`.
 | `get_beltrami_coefficient`, `lsqc_solver`, `mu_chop` | quasiconformal primitives |
 | `get_unit_disk`, `get_rect`, `get_unit_disk_in_rect`, `Mesh`, `DiskMesh` | meshes |
 | `solve_tbs(beta, alpha, spacing=0.1, boundary_count=128, ...)` | local P1 minimax self-map of the disk with the complete-circle welding frozen; see below |
+| `solve_sliding_boundary(curve, derivative, modes=None, initial=None, max_iterations=50, tolerance=2e-10, *, continuation=True, max_modes=512, target_residual=2e-7)`, `BoundarySelection` | Fourier boundary-correspondence selection for the PDE route (local solver; auto-continues in Fourier order) |
 | `hbs.volumetric`: `TetraMesh`, `ball_tetra_mesh`, `SpheroidChart`, `RevolutionChart`, `solve_fixed_trace`, `solve_softmax` | discrete 3D fixed-trace quasiconformal prototype (local minimax of `K`); see below |
 
 `mu` is complex, `field`/`mapping` are real `n × 2` arrays; `hbs.utils.cast.to_real` /
 `to_complex` convert between the two representations.
+
+### Boundary correspondence selection (`hbs.boundary_selection`)
+
+`solve_sliding_boundary` chooses a parameterization `p` of a positively oriented
+Jordan curve `γ` so that `γ ∘ p` has no positive Fourier modes above the first and
+its first mode is real positive **relative to the input curve's own first Fourier
+coefficient** — an implicit exterior-conformality condition. It takes **no**
+exterior density and **no** prescribed boundary correspondence `β`. The solver is a
+damped Gauss–Newton and is **local**: it checks sampled monotonicity and a denser
+Fourier residual, not a continuous certificate.
+By default it continues in Fourier order (`8 → 16 → 32 → …`) until the dense
+residual is below `target_residual` or `max_modes` is reached; supply `initial`
+to disable that automatic continuation and control the warm start yourself.
+Inspect `diagnostics["accepted"]`, `dense_forbidden_residual`, and
+`dense_min_parameter_speed`; `accepted` alone is not a proof. The module only
+selects the correspondence — it does not solve HBS, extend harmonically, or
+reconstruct `μ`.
+
+```python
+import numpy as np
+from hbs.boundary_selection import solve_sliding_boundary
+
+curve = lambda t: 1.2 * np.exp(1j * t) + 0.1 * np.exp(-2j * t)
+derivative = lambda t: 1.2j * np.exp(1j * t) - 0.2j * np.exp(-2j * t)
+theta = np.linspace(0, 2 * np.pi, 512, endpoint=False)
+selection = solve_sliding_boundary(curve, derivative)
+boundary = curve(selection.parameter(theta))
+print(selection.diagnostics["accepted"])
+```
+
+### PDE engine (`method="pde"`)
+
+`method="pde"` combines the exterior one-sided Fourier selector
+(`hbs.boundary_selection`) with the interior flat-metric PDE
+`Δu = 0, κ + ∂ₙu = eᵘ`, then applies the paper's M1 centering
+`Σ Φ₁⁻¹(z_k)=0` on the full collocation grid. It does not use the
+harmonic-measure density.
+
+After M1 alignment it matches the harmonic-measure engine up to a source-circle
+rotation: welding rms 8e-4° / 0.35° / 8e-6° and μ rms 0.0009 / 0.018 / 8e-7 on
+bent-lobe / asymmetric-dent3 / ellipse. Rotation, translation, scaling and
+start-point rolls are invariant. The solver is local: strong non-convex boundaries
+(e.g. `cos t + 0.3 cos 2t + i(sin t + 0.2 sin 3t)`) can leave the interior Robin
+residual at ~0.13; the engine then raises `RuntimeError` explicitly instead of
+silently degrading. Low-level entry: `hbs.pde.pde_welding` (default `n=96`,
+selector `max_modes=192`).
 
 ### Fixed-complete-circle TBS (`hbs.tbs`)
 
@@ -271,6 +319,8 @@ are recorded in [CHANGELOG.md](https://github.com/ChanceAroundYou/hbs_python/blo
 - `harmonic_measure.py` + `_harmonic_measure/direct.py`: the harmonic-measure engine and its vendored kernel (NumPy/SciPy only)
 - `conformal_welding.py`: `ConformalWelding` / `get_conformal_welding`
 - `extension.py`: P1 finite-element harmonic extension, shared by both engines
+- `boundary_selection.py`: `solve_sliding_boundary` / `BoundarySelection` — Fourier
+  boundary-correspondence selection for the PDE route (local solver)
 - `cache.py`: on-disk cache for the disk mesh and its FEM operator
 - `gauges.py`: I₂ anchor, the paper's M3+M4 closed form, and the branch-free `c0` anchor
 - `weld_compare.py`: welding agreement metric (degree-1 circle homeomorphism)

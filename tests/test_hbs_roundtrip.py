@@ -131,11 +131,15 @@ def _star5(m=500):
     return np.stack([r * np.cos(t), r * np.sin(t)], 1)
 
 
-def _triangle(m=500):
-    # 等边三角形（Z3 对称），用三次谐波构造光滑封闭曲线
+def _triangle(amplitude=0.3, m=500):
+    # Z3 对称圆润三角形：z(t)=e^{it}+a e^{-i(2t+0.6)}。
+    # |z'| = |1 - 2a e^{-i(3t+0.6)}|：a<0.5 时光滑；a=0.5 时在 3t+0.6=0 mod 2π
+    # 处出现精确尖点（|z'|=0），不在调和测度引擎的“光滑、密度严格为正”定义域内。
     t = np.linspace(0, 2 * np.pi, m, endpoint=False)
     return np.stack(
-        [np.cos(t) + 0.5 * np.cos(2 * t + 0.6), np.sin(t) - 0.5 * np.sin(2 * t + 0.6)], 1
+        [np.cos(t) + amplitude * np.cos(2 * t + 0.6),
+         np.sin(t) - amplitude * np.sin(2 * t + 0.6)],
+        1,
     )
 
 
@@ -151,18 +155,25 @@ def test_symmetric_shapes_reconstruct(disk, shape_fn, name):
     assert f < 0.3, f"{name} 尺度无关形状保真 {f:.3f} 超出容差"
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="Z3 等边三角形 λ 不收敛 → LSQC 降级路径形状定标失效（rec 面积 2.07× 且几何扁平）。"
-    "已知局限：对称形状降级重建不保证形状保真，记录在案。",
-)
-def test_symmetric_triangle_reconstruction_known_limitation(disk):
-    shape = _triangle()
+def test_smooth_z3_triangle_reconstructs(disk):
+    # Z3 对称、无尖点的圆润三角形：应走原始输入路径并通过形状保真门槛。
+    shape = _triangle(amplitude=0.3)
     hbs, _, _, d = get_hbs(shape, 1000, 0.01, disk)
     assert np.all(np.isfinite(hbs))
     rec, _, _, _ = reconstruct_from_hbs(hbs, d)
     f = _unit_area_fidelity(shape, rec)
     assert f < 0.3, f"triangle 尺度无关形状保真 {f:.3f} 超出容差"
+
+
+def test_cusped_z3_boundary_is_rejected(disk):
+    """a=0.5 是精确三尖点：|γ'| 为零，调和测度密度退化。
+
+    这不是重建精度问题，而是边界不在 harmonic_measure 引擎的定义域内；
+    引擎应显式失败，而不是返回一个看似可用的降级结果。
+    """
+    shape = _triangle(amplitude=0.5)
+    with pytest.raises(RuntimeError, match="harmonic_measure"):
+        get_hbs(shape, 1000, 0.01, disk)
 
 
 def test_nonuniform_boundary_resampled(disk):

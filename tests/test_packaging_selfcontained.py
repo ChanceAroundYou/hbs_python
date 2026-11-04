@@ -23,7 +23,12 @@ import pytest
 PKG = Path(__file__).resolve().parents[1] / "hbs"
 
 # 只存在于研究仓库 src/ 的顶层模块名；wheel 里不许出现对它们的引用
-FOREIGN_MODULES = ("direct_boundary_hbs", "joint_hbs_optimizer", "upgraded_hbs")
+FOREIGN_MODULES = (
+    "direct_boundary_hbs",
+    "joint_hbs_optimizer",
+    "upgraded_hbs",
+    "free_boundary_selection",
+)
 
 _IMPORT_RE = re.compile(
     r"^\s*(?:from\s+({m})\b|import\s+({m})\b)".format(m="|".join(FOREIGN_MODULES)),
