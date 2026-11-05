@@ -10,6 +10,64 @@ version newer than PyPI's latest describe work that is on `main` only.
 
 ## [Unreleased]
 
+## [2.6.2] — 2026-11-05
+
+### Changed — bounded in-process caches
+
+- The in-process disk/FEM/LU caches are now bounded LRU maps:
+  8 `(density, circle)` meshes, 8 FEM operators, 2 SuperLU factorizations. Repeated
+  custom `DiskMesh` objects no longer grow memory without limit; eviction affects only
+  the in-process copies, never the on-disk mesh/FEM files.
+- Added `hbs.cache.clear_memory_cache()` and `hbs.cache.memory_cache_info()`.
+  Cache reads/writes are protected by an `RLock`; concurrent first factorizations may
+  duplicate work, but cannot corrupt the cache.
+- The file cache and its schema are unchanged. Same `(density, circle)` still returns
+  the same `disk`/`fem` object within a process, and the same `disk` still reuses its
+  factorization.
+
+### Changed — one blocked solve for the real and imaginary RHS
+
+- `hbs.extension.fem_extend` now solves the two real right-hand sides as one
+  `n_inner × 2` block instead of two separate `factor.solve` calls. Measured warm
+  solve at 30k vertices: about 5.6 ms → 3.7 ms (1.3–1.5×).
+- The result differs from the two-solve path only in the last bits (about `1e-15`);
+  the full regression suite passes. This is not a bitwise-identical replacement for
+  2.6.0 if a downstream snapshot compares raw floating-point bytes.
+
+### Added — `DEFAULT_MESH_PROFILE`
+
+- `hbs.DEFAULT_MESH_PROFILE` (`MeshProfile(density=0.01, circle_point_num=500)`) and
+  `hbs.MeshProfile` are exported for callers that want the default grid as data.
+  They are informational: explicit `density` / `circle_point_num` / `disk` arguments
+  still take precedence, and no external call is forced onto the default profile.
+- `.key` returns the `(density, circle_point_num)` tuple used by
+  `hbs.cache.load_unit_disk`.
+
+### Documentation
+
+- README now describes the bounded in-process caches, `clear_memory_cache()`, the
+  default mesh profile, the three-engine registry (not “two engines”), and labels the
+  `img/example.png` measured block as the 2.3.3 baseline that the current forward
+  path still reproduces.
+- `docs/pde-engine.md` documents the cache limits and release behavior.
+
+### Evaluated, not adopted
+
+- `scikit-sparse`/CHOLMOD could not be built in this environment because the system
+  lacks `cholmod.h` (SuiteSparse headers). It is not a portable default dependency.
+- `pypardiso` installed in a temporary environment and was benchmarked: cold
+  factorization about 1.5× faster at 30k vertices and 3.5× at 121k vertices, with
+  identical warm-solve cost; numerical difference about `1e-14`. It was not adopted
+  because it adds roughly 300 MB of MKL/Intel runtime, is x86-oriented, and its
+  default solver is not intended for parallel instances. The existing SuperLU path
+  remains the default.
+
+### Notes — publication scope
+
+At release time PyPI's latest version was 2.4.0; 2.6.2 is the first PyPI publication
+containing the 2.5.0 (`hbs.tbs`, `hbs.boundary_selection`, `method="pde"`) and 2.6.0
+(`hbs.volumetric` default change) work recorded below, plus these 2.6.2 changes.
+
 ## [2.6.0] — 2026-11-05
 
 ### Changed — `solve_softmax`: smooth objective and stop conditions
@@ -841,6 +899,7 @@ no smooth reparameterization that fixes it.
   `post_deepen` parameter was removed entirely.
 - Nothing else in the public API changed.
 
+[2.6.2]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.6.0...v2.6.2
 [2.6.0]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.3.4...v2.4.0
