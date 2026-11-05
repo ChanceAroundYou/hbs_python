@@ -95,14 +95,25 @@ about 3–5 ms above `n=96` on the simple shapes and is unchanged on `asym_dent3
 because the selector dominates there. `n=128` is the only supported default;
 raising `n` beyond 128 does not improve reconstruction fidelity.
 
+The selector uses a 4× collocation grid in the PDE route (the standalone default
+remains 8×) and solves the overdetermined Newton step through the Cholesky
+factorization of the normal equations, falling back to `gelsy` only when the
+factorization/residual checks fail. On the six-shape set the 4× grid matched the
+8×焊接/μ readings; `asym_dent3` selector time fell from about 104 ms to 47 ms.
+`pde_welding` exposes `diagnostics["newton_fallbacks"]` and
+`newton_step_sources` so a future regression is visible.
+
 The shared FEM path now also caches the `disk`/`fem` objects and the `splu(A)`
 factorization in-process. `build_hbs` drops from about 134–155 ms per call to
-about 68 ms after the first factorization; the full `get_hbs(method="pde")`
-call is 2.2–4.1× faster than the pre-cache baseline on the six-shape set. First
-call still pays one factorization (about 69 ms). The in-process caches are
-bounded (LRU: 8 meshes, 8 FEM operators, 2 factorizations) so repeated custom
-`DiskMesh` objects do not grow memory without limit; `hbs.cache.clear_memory_cache()`
-releases them without touching the on-disk mesh/FEM cache.
+about 50 ms after factorization; the fast `rotate_disk` (shallow copy plus
+similarity-transformed operators, rather than rebuilding all 60k-face operators)
+brings a typical `build_hbs` call to about 12 ms. The full
+`get_hbs(method="pde")` median is now roughly 21–70 ms on the six shapes, versus
+the pre-cache/pre-rotation baseline of 137–475 ms. First call still pays one
+factorization (about 69 ms). The in-process caches are bounded (LRU: 8 meshes,
+8 FEM operators, 2 factorizations) so repeated custom `DiskMesh` objects do not
+grow memory without limit; `hbs.cache.clear_memory_cache()` releases them
+without touching the on-disk mesh/FEM cache.
 
 A same-benchmark comparison with accuracy, speed, feasibility and invariance is
 kept in `HBS-research/runs/三引擎同台对比_2026-11-04/报告.md`; the optimization

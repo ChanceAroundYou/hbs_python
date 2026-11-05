@@ -10,6 +10,23 @@ version newer than PyPI's latest describe work that is on `main` only.
 
 ## [Unreleased]
 
+### Performance — PDE route
+
+- The PDE selector uses a 4× collocation grid (standalone default remains 8×)
+  and solves the overdetermined Newton step through the Cholesky factorization
+  of the normal equations, falling back to `gelsy` on singularity or bad
+  residual/step checks. `diagnostics["newton_fallbacks"]` and
+  `newton_step_sources` expose the path taken. On `asym_dent3` selector time
+  dropped from about 104 ms to 47 ms; the six-shape welding/μ readings are
+  unchanged.
+- `gauges.rotate_disk` now shallow-copies the `DiskMesh` and applies the
+  similarity transform to the first-order operators instead of rebuilding all
+  60k-face operators. A full `build_hbs` call drops from about 50 ms to about
+  12 ms after the FEM factorization is cached.
+- Full `get_hbs(method="pde")` median is now about 21–70 ms on the six-shape
+  set; it is 1.7–2.4× faster than harmonic_measure on five shapes and 0.8× on
+  `asym_dent3`.
+
 ## [2.6.3] — 2026-11-05
 
 ### Added — `hbs.RiemannMap` / `hbs.riemann_map`

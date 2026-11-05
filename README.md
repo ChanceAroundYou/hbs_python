@@ -139,7 +139,7 @@ explicit `disk`.
 | `DEFAULT_MESH_PROFILE`, `MeshProfile` | requested default grid `(density=0.01, circle=500)`; informational only — explicit arguments still win |
 | `hbs.cache.load_unit_disk`, `hbs.cache.clear_memory_cache`, `hbs.cache.memory_cache_info` | file-backed mesh/FEM cache plus bounded in-process cache diagnostics and release |
 | `solve_tbs(beta, alpha, spacing=0.1, boundary_count=128, ...)` | local P1 minimax self-map of the disk with the complete-circle welding frozen; see below |
-| `solve_sliding_boundary(curve, derivative, modes=None, initial=None, max_iterations=50, tolerance=2e-10, *, continuation=True, max_modes=512, min_modes=8, min_absolute_residual=0.0, target_residual=2e-7)`, `BoundarySelection` | Fourier boundary-correspondence selection for the PDE route (local solver; auto-continues in Fourier order) |
+| `solve_sliding_boundary(curve, derivative, modes=None, initial=None, max_iterations=50, tolerance=2e-10, *, continuation=True, max_modes=512, min_modes=8, min_absolute_residual=0.0, target_residual=2e-7, collocation_factor=8)`, `BoundarySelection` | Fourier boundary-correspondence selection for the PDE route (local solver; auto-continues in Fourier order) |
 | `hbs.volumetric`: `TetraMesh`, `ball_tetra_mesh`, `SpheroidChart`, `RevolutionChart`, `solve_fixed_trace`, `solve_softmax` | discrete 3D fixed-trace quasiconformal prototype (local minimax of `K`); see below |
 
 `mu` is complex, `field`/`mapping` are real `n × 2` arrays; `hbs.utils.cast.to_real` /
