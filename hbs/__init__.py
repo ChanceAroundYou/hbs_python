@@ -5,10 +5,12 @@
 __version__ = "2.6.0"
 
 from ._pipeline import (
+    DEFAULT_MESH_PROFILE,
     DEFAULT_NORMALIZE,
     NORMALIZATIONS,
     EngineAgreement,
     HBSResult,
+    MeshProfile,
     compare_engines,
 )
 from .boundary_selection import BoundarySelection, solve_sliding_boundary
@@ -78,6 +80,8 @@ __all__ = [
     # 网格
     "Mesh",
     "DiskMesh",
+    "MeshProfile",
+    "DEFAULT_MESH_PROFILE",
     "get_rect",
     "get_unit_disk",
     "get_unit_disk_in_rect",

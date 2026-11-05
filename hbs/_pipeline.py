@@ -50,6 +50,27 @@ from hbs.qc import get_beltrami_coefficient
 DEFAULT_DENSITY = 0.01
 DEFAULT_CIRCLE = 500
 
+
+@dataclass(frozen=True)
+class MeshProfile:
+    """一组 `(density, circle_point_num)` 网格参数。
+
+    `DEFAULT_MESH_PROFILE` 只是把现行默认值打包给调用方参考；库不会强制外部
+    调用使用它，显式传入的 `density` / `circle_point_num` / `disk` 仍然优先。
+    """
+
+    density: float
+    circle_point_num: int
+
+    @property
+    def key(self) -> tuple[float, int]:
+        """可直接作为 `cache.load_unit_disk` 的缓存键。"""
+        return (float(self.density), int(self.circle_point_num))
+
+
+#: 现行默认网格参数 `(density=0.01, circle=500)`；不限制显式调用。
+DEFAULT_MESH_PROFILE = MeshProfile(DEFAULT_DENSITY, DEFAULT_CIRCLE)
+
 #: μ 源圆旋转规范的合法取值，语义见模块文档与 `hbs.gauges.GAUGES`。
 NORMALIZATIONS = gauges.GAUGES
 
