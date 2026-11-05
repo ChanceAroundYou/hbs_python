@@ -17,7 +17,7 @@ trace-only 路径：在边界上解非线性 Robin 问题
 - 这是离散原型：验收看 ``curvature_robin_max``、``normalization_residual``、
   ``augmentation_norm`` 三个诊断；引擎用 ``robin/augmentation <= 1e-3`` 的
   宽松阈值，不声称连续误差界或全局唯一性。
-- 外域选择器在引擎里用 ``min_modes=64``、``max_modes=192``，停止目标是
+- 外域选择器在引擎里用 ``min_modes=64``、``max_modes=192``、4× 配点，停止目标是
   ``3e-4``；低阶残差若已低于 ``2e-8`` 才允许提前停。这样 ``asym_dent3``
   从 192 阶降到 128 阶，``three_lobe`` 从 128 阶降到 64 阶，μ/焊接只差
   1–2%；简单形状仍在 16–32 阶。
@@ -311,6 +311,7 @@ def pde_welding(
     max_iterations: int = 35,
     warm_start: bool = True,
     selection_target_residual: float = _SELECTION_TARGET,
+    selection_collocation_factor: int = 4,
 ) -> dict:
     """用「外域 Fourier 条件 + 内域平坦度量 PDE」构造焊接种。
 
@@ -327,6 +328,8 @@ def pde_welding(
     冷启动一致到残差量级。``selection_target_residual`` 是 PDE 侧选择器的
     停止目标（默认 ``3e-4``）；选择器至少走到 64 阶，只有绝对残差低于
     ``2e-8`` 时才允许更早停止；引擎验收门取目标与 ``3e-4`` 的较大值。
+    ``selection_collocation_factor`` 是选择器配点倍数（默认 4；6 形状实测
+    与 8 的焊接/μ 逐位一致，2 会失败）。
     """
     from hbs.boundary_selection import solve_sliding_boundary
 
@@ -381,6 +384,7 @@ def pde_welding(
         min_modes=_SELECTION_MIN_MODES,
         min_absolute_residual=_SELECTION_MIN_ABSOLUTE,
         target_residual=selection_target_residual,
+        collocation_factor=selection_collocation_factor,
     )
     selection_diagnostics = selection.diagnostics
     selection_gate = max(_SELECTION_GATE, float(selection_target_residual))

@@ -236,6 +236,29 @@ def test_min_modes_above_max_modes_is_rejected():
 
 def test_newton_step_falls_back_on_singular_system():
     """方阵直接求解失败时应回退到最小二乘，而不是把异常漏出去。"""
-    delta = _newton_step(np.ones((3, 3)), np.array([1.0, 2.0, 3.0]))
+    delta, source = _newton_step(np.ones((3, 3)), np.array([1.0, 2.0, 3.0]))
+    assert source == "lstsq"
     assert delta.shape == (3,)
     assert np.all(np.isfinite(delta))
+
+
+def test_newton_step_uses_normal_equations_when_well_conditioned():
+    jacobian = np.array([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+    residual = np.array([1.0, 2.0, 3.0])
+    delta, source = _newton_step(jacobian, residual)
+    assert source == "normal"
+    assert delta.shape == (2,)
+    assert np.all(np.isfinite(delta))
+
+
+def test_collocation_factor_four_matches_eight_on_smooth_case():
+    """4× 配点在光滑解析族上与 8× 给出同一参数化/残差。"""
+    curve, derivative, _ = analytic_case("ellipse")
+    eight = solve_sliding_boundary(curve, derivative, modes=16, collocation_factor=8)
+    four = solve_sliding_boundary(curve, derivative, modes=16, collocation_factor=4)
+    theta = np.linspace(0.0, 2.0 * np.pi, 512, endpoint=False)
+    assert np.allclose(eight.parameter(theta), four.parameter(theta), atol=1e-9)
+    assert abs(
+        eight.diagnostics["dense_forbidden_residual"]
+        - four.diagnostics["dense_forbidden_residual"]
+    ) < 1e-8

@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from time import perf_counter
 
 import numpy as np
-from scipy.linalg import LinAlgError, lstsq, solve
+from scipy.linalg import LinAlgError, cho_factor, cho_solve, lstsq
 
 __all__ = [
     "BoundarySelection",
@@ -109,12 +109,19 @@ class _SlidingBoundaryProblem:
     供 :func:`solve_sliding_boundary` 的 Gauss–Newton 使用。
     """
 
-    def __init__(self, curve, derivative, modes=32):
+    def __init__(self, curve, derivative, modes=32, collocation_factor=8):
         if not callable(curve) or not callable(derivative):
             raise TypeError("curve and derivative must be callable")
         self.curve, self.derivative = curve, derivative
         self.modes = _positive_int(modes, "modes")
-        self.count = 8 * (self.modes + 1)
+        self.collocation_factor = _positive_int(
+            collocation_factor, "collocation_factor"
+        )
+        self.count = self.collocation_factor * (self.modes + 1)
+        if self.count <= 2 * self.modes + 1:
+            raise ValueError(
+                "collocation_factor is too small for the requested modes"
+            )
         self.theta = 2 * np.pi * np.arange(self.count) / self.count
         self.basis, self.basis_derivative = _parameter_basis(self.theta, self.modes)
         dense_theta = 2 * np.pi * np.arange(4 * self.count) / (4 * self.count)
@@ -166,17 +173,37 @@ class _SlidingBoundaryProblem:
 
 
 def _newton_step(jacobian, residual):
-    """解 ``J δ = r``：方阵直接求解，奇异/病态时回退到 ``lstsq``。
+    """解最小二乘 ``min ||J δ - r||``，返回 ``(δ, source)``。
 
-    Jacobian 在这里总是 ``(2M+1) × (2M+1)``。直接求解比 ``gelsy`` 快，
-    但早期阶段或退化曲线上可能秩亏；回退保留原来的最小二乘行为。
+    Jacobian 实际是 ``(4M+1) × (2M+1)`` 的高矩阵（禁用频率的实/虚部各算一个
+    方程），所以不能直接 `solve`。正常路径用法方程 ``JᵀJ δ = Jᵀr`` 的 Cholesky
+    分解；若法方程病态/非正定，或回代残差/步长不可信，回退到 ``gelsy``。
+    ``source`` 会写进诊断，便于定位“这次为什么慢”。
     """
     try:
-        return solve(jacobian, residual, assume_a="gen", check_finite=False)
+        normal = jacobian.T @ jacobian
+        rhs = jacobian.T @ residual
+        factor = cho_factor(normal, lower=True, check_finite=False)
+        delta = cho_solve(factor, rhs, check_finite=False)
+        if np.all(np.isfinite(delta)):
+            normal_residual = float(np.linalg.norm(normal @ delta - rhs))
+            normal_reference = max(float(np.linalg.norm(rhs)), 1.0)
+            residual_norm = float(np.linalg.norm(jacobian @ delta - residual))
+            residual_reference = max(float(np.linalg.norm(residual)), 1.0)
+            step_norm = float(np.linalg.norm(delta))
+            if (
+                normal_residual <= 1e-10 * normal_reference
+                and residual_norm <= 1.1 * residual_reference
+                and step_norm <= 1e6 * residual_reference
+            ):
+                return delta, "normal"
     except (LinAlgError, ValueError):
-        return lstsq(
-            jacobian, residual, cond=1e-12, lapack_driver="gelsy"
-        )[0]
+        pass
+
+    delta = lstsq(jacobian, residual, cond=1e-12, lapack_driver="gelsy")[0]
+    if not np.all(np.isfinite(delta)):
+        raise RuntimeError("boundary selection Newton step is non-finite")
+    return delta, "lstsq"
 
 
 def _solve_once(
@@ -186,6 +213,7 @@ def _solve_once(
     initial,
     max_iterations,
     tolerance,
+    collocation_factor=8,
 ):
     """单阶求解（内部函数；不自动续算）。"""
     max_iterations = _positive_int(max_iterations, "max_iterations")
@@ -194,7 +222,9 @@ def _solve_once(
         raise ValueError("tolerance must be finite and positive")
 
     start = perf_counter()
-    problem = _SlidingBoundaryProblem(curve, derivative, modes)
+    problem = _SlidingBoundaryProblem(
+        curve, derivative, modes, collocation_factor=collocation_factor
+    )
     coefficients = np.zeros(2 * problem.modes + 1)
     if initial is not None:
         initial = np.asarray(initial, dtype=float)
@@ -208,13 +238,15 @@ def _solve_once(
             old_modes + 1 : old_modes + 1 + keep
         ]
     iterations, reason = 0, "iteration_limit"
+    step_sources = []
     for iteration in range(max_iterations):
         iterations = iteration + 1
         state = problem.evaluate(coefficients, True)
         if np.sqrt(state["cost"]) < tolerance:
             reason = "residual_tolerance"
             break
-        delta = _newton_step(state["jacobian"], -state["residual"])
+        delta, source = _newton_step(state["jacobian"], -state["residual"])
+        step_sources.append(source)
         accepted = False
         for power in range(20):
             step = 2.0**-power
@@ -245,6 +277,8 @@ def _solve_once(
         "collocation_count": problem.count,
         "stop_reason": reason,
         "iterations": iterations,
+        "newton_fallbacks": sum(source == "lstsq" for source in step_sources),
+        "newton_step_sources": step_sources,
         "discrete_residual": float(np.sqrt(problem.evaluate(coefficients)["cost"])),
         "dense_forbidden_residual": residual_dense,
         "dense_min_parameter_speed": min_speed,
@@ -295,6 +329,7 @@ def solve_sliding_boundary(
     min_modes=8,
     min_absolute_residual=0.0,
     target_residual=2e-7,
+    collocation_factor=8,
 ):
     """用阻尼 Gauss–Newton 选择边界参数化。
 
@@ -327,6 +362,10 @@ def solve_sliding_boundary(
     target_residual:
         自动续算的加密残差目标，默认 ``2e-7``（与 ``accepted`` 同一阈值；
         可调紧到 ``2e-9`` 换取更高精度，代价是更高阶与更长时间）。
+    collocation_factor:
+        每个 Fourier 系数对应的配点数倍数，默认 8；必须大于
+        ``(2 * modes + 1) / (modes + 1)``。4 是实验性下采样，需自行验证
+        dense 残差/焊接精度。
 
     Returns
     -------
@@ -360,7 +399,8 @@ def solve_sliding_boundary(
         if modes is None:
             raise ValueError("modes must be an integer when continuation is disabled")
         return _solve_once(
-            curve, derivative, modes, initial, max_iterations, tolerance
+            curve, derivative, modes, initial, max_iterations, tolerance,
+            collocation_factor=collocation_factor,
         )
 
     start = perf_counter()
@@ -370,7 +410,8 @@ def solve_sliding_boundary(
     selection = None
     for stage in stages:
         selection = _solve_once(
-            curve, derivative, stage, current, max_iterations, tolerance
+            curve, derivative, stage, current, max_iterations, tolerance,
+            collocation_factor=collocation_factor,
         )
         current = selection.coefficients
         diagnostics = selection.diagnostics
