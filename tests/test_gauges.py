@@ -16,11 +16,12 @@
 
 from __future__ import annotations
 
-import numpy as np
-import pytest
 from types import SimpleNamespace
 
-import hbs.gauges as gauges
+import numpy as np
+import pytest
+
+from hbs import gauges
 from hbs.mesh import get_unit_disk
 
 TWO_PI = 2 * np.pi
@@ -360,7 +361,7 @@ def test_harmonic_measure_compat_wrapper_returns_the_gauge_choice(disk):
     （见 `test_c0_reports_undetermined_on_centrally_symmetric_field`），
     用椭圆测“每套规范都生效”会测到别的东西。
     """
-    import hbs.harmonic_measure as harmonic_measure
+    from hbs import harmonic_measure
 
     t = np.linspace(0, 2 * np.pi, 500, endpoint=False)
     bound = np.stack(
@@ -391,3 +392,31 @@ def test_pipeline_result_carries_the_same_choice_as_the_public_entry():
     direct = gauges.select_gauge(result.mu, result.disk, "default")
     assert result.gauge.kind == "none" and result.gauge.phase is None
     assert direct.kind in gauges.GAUGES
+
+
+def test_rotate_disk_matches_full_mesh_rebuild():
+    """快速旋转只变换几何/一阶算子，结果必须与旧的全量重建一致。"""
+    from hbs.mesh import DiskMesh
+    from hbs.utils.cast import to_complex, to_real
+
+    disk = get_unit_disk(density=0.1, circle_point_num=60)
+    scale = np.exp(-1j * 0.83)
+    rotated = gauges.rotate_disk(disk, scale)
+
+    f = complex(scale)
+    reference = DiskMesh(
+        to_real(to_complex(disk.circle) * f),
+        to_real(to_complex(disk.in_vert) * f) if disk.in_vert is not None else None,
+        None,
+        disk.face,
+    )
+    for attr in ("circle", "vert", "face_center"):
+        assert np.allclose(getattr(rotated, attr), getattr(reference, attr), atol=1e-12)
+    for attr in ("Dx", "Dy", "Dz", "Dc"):
+        assert np.allclose(
+            getattr(rotated, attr).toarray(),
+            getattr(reference, attr).toarray(),
+            atol=1e-12,
+        )
+    assert np.allclose(rotated.area, reference.area, atol=1e-12)
+    assert np.array_equal(rotated.face, reference.face)

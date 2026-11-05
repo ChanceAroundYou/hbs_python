@@ -106,6 +106,7 @@ M3+M4 自身也有病态：`s` 落在 0 或 π 附近时分支选择对扰动敏
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 
 import numpy as np
@@ -424,22 +425,35 @@ def rotate_disk(disk, scale: complex):
     顶点顺序不变意味着 face 索引一一对应，因此 `apply_gauge` 输出的 μ 可以直接
     配这个网格使用，**不需要插值**。
 
-    原网格上落在 (1,0)/(0,0) 的 landmark 顶点在旋转后已不在原坐标，
-    这里把它们的**索引**记到新网格的 `landmark` 属性上，供
-    `reconstruct_from_hbs` 使用（旋转是保角变换，钉到顶点自身即等价）。
-    """
-    from hbs.mesh import DiskMesh
+    旋转是相似变换，因此不重新构造 `DiskMesh`（那会重算 6 万面的全部算子）。
+    这里浅拷贝网格，只旋转几何数组并按旋转角变换一阶算子：
 
+    - `circle` / `in_vert` / `out_vert` / `vert` / `face_center` 乘 `scale`；
+    - `edges` 同步旋转；`area`、`laplacian`、`f2v`、`v2f` 不变；
+    - 令 ``Dz=(Dx-i Dy)/2``、``Dc=(Dx+i Dy)/2``，源坐标 ``z'=scale*z`` 下
+      ``Dz'=conj(scale)Dz``、``Dc'=scale Dc``，再反解 ``Dx/Dy``。
+
+    与旧实现（重建 `DiskMesh`）相比，数值只在浮点末位有差异；测试覆盖
+    `get_beltrami_coefficient`、规范泛函和重建契约。
+    """
     f = complex(scale)
-    circle = to_complex(disk.circle) * f
-    in_vert = to_complex(disk.in_vert) * f if disk.in_vert is not None else None
-    out_vert = to_complex(disk.out_vert) * f if disk.out_vert is not None else None
-    rotated = DiskMesh(
-        to_real(circle),
-        to_real(in_vert) if in_vert is not None else None,
-        to_real(out_vert) if out_vert is not None else None,
-        disk.face,
-    )
+    rotated = copy.copy(disk)
+    rotated.circle = to_real(to_complex(disk.circle) * f)
+    if disk.in_vert is not None:
+        rotated.in_vert = to_real(to_complex(disk.in_vert) * f)
+    if disk.out_vert is not None:
+        rotated.out_vert = to_real(to_complex(disk.out_vert) * f)
+    rotated.vert = to_real(to_complex(disk.vert) * f)
+    rotated.face_center = to_real(to_complex(disk.face_center) * f)
+    rotated.edges = tuple(to_real(to_complex(edge) * f) for edge in disk.edges)
+
+    dz = (np.conj(f) * disk.Dz).tocsr()
+    dc = (f * disk.Dc).tocsr()
+    rotated.Dz = dz
+    rotated.Dc = dc
+    rotated.Dx = (dz + dc).real.tocsr()
+    rotated.Dy = (1j * (dz - dc)).real.tocsr()
+
     stored = getattr(disk, "landmark", None)
     if stored is None:
         one_pos = np.all(disk.vert == np.array([1.0, 0.0]), axis=1)
