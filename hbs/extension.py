@@ -65,7 +65,10 @@ def fem_extend(disk, boundary_values, fem=None, factor=None):
         factor = cache.fem_extension_operator(disk, fem)
 
     rhs = -(B @ y)
-    inner = factor.solve(rhs.real) + 1j * factor.solve(rhs.imag)
+    # Re/im 作为一个多 RHS 稠密块一次回代；SuperLU 对 2 列 RHS 比两次
+    # 单列 solve 少一次调度。与两次 solve 的差异只在浮点末位（约 1e-15）。
+    solution = factor.solve(np.column_stack((rhs.real, rhs.imag)))
+    inner = solution[:, 0] + 1j * solution[:, 1]
 
     values = np.empty(disk.vert_num, complex)
     values[:nc] = y

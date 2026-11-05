@@ -28,6 +28,15 @@
 
 缓存命中后返回的网格与现场计算**逐位相同**（`np.array_equal`）；`tests/`
 里有对应用例。缓存文件带 schema 版本与形状字段的校验，不匹配即重算。
+
+## 进程内缓存的生命周期
+
+文件缓存可以无限增长，进程内的 `disk` / `fem` / `splu` 对象不能。三个内存
+字典都按最近使用顺序保留有限条数（默认 8 / 8 / 2）：超出后淘汰最久未用的
+条目，避免长期运行或反复创建自定义 `DiskMesh` 时无界占用内存。淘汰只影响
+内存缓存，文件缓存与调用方已拿到的对象不受影响；需要主动释放时调用
+:func:`clear_memory_cache`。缓存字典的读写有进程内锁；同一盘并发首次分解可能
+重复计算一次，但不会破坏缓存。
 """
 
 from __future__ import annotations
@@ -37,7 +46,9 @@ import json
 import os
 import shutil
 import tempfile
+from collections import OrderedDict
 from pathlib import Path
+from threading import RLock
 
 import numpy as np
 from scipy.sparse import csr_matrix
@@ -50,11 +61,55 @@ _ENV_DIR = "HBS_CACHE_DIR"
 _ENV_ENABLE = "HBS_CACHE"
 
 # 进程内缓存：同一 (density, circle) 只保留一份 disk/fem，同一 disk 只分解一次 A。
-# 文件缓存避免重建网格；这两个字典避免每次 `get_hbs` 都重新读 npz、重建
-# `DiskMesh`、重新做 SuperLU 分解。对象在进程内长期存活，id 不会被复用。
-_DISK_MEMORY: dict[tuple[float, int], tuple] = {}
-_FEM_MEMORY: dict[int, tuple] = {}
-_FACTOR_MEMORY: dict[int, tuple] = {}
+# 文件缓存避免重建网格；这些字典避免每次 `get_hbs` 都重新读 npz、重建
+# `DiskMesh`、重新做 SuperLU 分解。用 OrderedDict 做有界 LRU，防止反复创建
+# 自定义盘时内存无界增长。
+_MAX_DISK_ENTRIES = 8
+_MAX_FEM_ENTRIES = 8
+_MAX_FACTOR_ENTRIES = 2
+_DISK_MEMORY: OrderedDict[tuple[float, int], tuple] = OrderedDict()
+_FEM_MEMORY: OrderedDict[int, tuple] = OrderedDict()
+_FACTOR_MEMORY: OrderedDict[int, tuple] = OrderedDict()
+_CACHE_LOCK = RLock()
+
+
+def _cache_get(memory: OrderedDict, key):
+    """取缓存并把命中条目移到最近使用端；未命中返回 None。"""
+    with _CACHE_LOCK:
+        value = memory.get(key)
+        if value is not None:
+            memory.move_to_end(key)
+        return value
+
+
+def _cache_put(memory: OrderedDict, key, value, limit: int) -> None:
+    """写入缓存并淘汰最久未用的条目，保持内存占用有界。"""
+    with _CACHE_LOCK:
+        memory[key] = value
+        memory.move_to_end(key)
+        while len(memory) > limit:
+            memory.popitem(last=False)
+
+
+def clear_memory_cache() -> None:
+    """清空进程内 disk / fem / 分解缓存；不动磁盘上的文件缓存。"""
+    with _CACHE_LOCK:
+        _DISK_MEMORY.clear()
+        _FEM_MEMORY.clear()
+        _FACTOR_MEMORY.clear()
+
+
+def memory_cache_info() -> dict[str, int]:
+    """返回进程内缓存条目数与上限，供诊断和测试使用。"""
+    with _CACHE_LOCK:
+        return {
+            "disk_entries": len(_DISK_MEMORY),
+            "disk_limit": _MAX_DISK_ENTRIES,
+            "fem_entries": len(_FEM_MEMORY),
+            "fem_limit": _MAX_FEM_ENTRIES,
+            "factor_entries": len(_FACTOR_MEMORY),
+            "factor_limit": _MAX_FACTOR_ENTRIES,
+        }
 
 
 def cache_root() -> Path:
@@ -92,7 +147,7 @@ def _fem_operator(disk):
     同一个 `disk` 对象只构造一次；显式传入的 `disk` 也走这条进程内缓存。
     """
     key = id(disk)
-    cached = _FEM_MEMORY.get(key)
+    cached = _cache_get(_FEM_MEMORY, key)
     if cached is not None and cached[0] is disk:
         return cached[1]
 
@@ -109,7 +164,7 @@ def _fem_operator(disk):
     bd = np.arange(disk.circle_num)
     weak = diags(1 / np.sqrt(np.pi * mass[ii])) @ stiffness[ii]
     fem = (weak[:, ii].tocsr(), weak[:, bd].tocsr())
-    _FEM_MEMORY[key] = (disk, fem)
+    _cache_put(_FEM_MEMORY, key, (disk, fem), _MAX_FEM_ENTRIES)
     return fem
 
 
@@ -141,7 +196,7 @@ def load_unit_disk(density: float, circle_point_num: int):
     from hbs.mesh import get_unit_disk  # 延迟导入，避免循环
 
     key = (float(density), int(circle_point_num))
-    cached = _DISK_MEMORY.get(key)
+    cached = _cache_get(_DISK_MEMORY, key)
     if cached is not None:
         return cached
 
@@ -168,8 +223,8 @@ def load_unit_disk(density: float, circle_point_num: int):
             if fem is None:
                 fem = _fem_operator(disk)
                 _write_fem(fem_path, fem)
-            _FEM_MEMORY[id(disk)] = (disk, fem)
-            _DISK_MEMORY[key] = (disk, fem)
+            _cache_put(_FEM_MEMORY, id(disk), (disk, fem), _MAX_FEM_ENTRIES)
+            _cache_put(_DISK_MEMORY, key, (disk, fem), _MAX_DISK_ENTRIES)
             return disk, fem
         except Exception:  # noqa: BLE001 - 缓存坏了就重算，不让它变成硬故障
             shutil.rmtree(directory, ignore_errors=True)
@@ -178,7 +233,7 @@ def load_unit_disk(density: float, circle_point_num: int):
     fem = _fem_operator(disk)
     if cache_enabled():
         _write_cache(directory, disk, fem, density, circle_point_num)
-    _DISK_MEMORY[key] = (disk, fem)
+    _cache_put(_DISK_MEMORY, key, (disk, fem), _MAX_DISK_ENTRIES)
     return disk, fem
 
 
@@ -247,10 +302,10 @@ def fem_extension_operator(disk, fem=None):
     if fem is None:
         fem = _fem_operator(disk)
     key = id(disk)
-    cached = _FACTOR_MEMORY.get(key)
+    cached = _cache_get(_FACTOR_MEMORY, key)
     if cached is not None and cached[0] is disk and cached[1] is fem:
         return cached[2]
     A, _B = fem
     factor = splu(A.tocsc())
-    _FACTOR_MEMORY[key] = (disk, fem, factor)
+    _cache_put(_FACTOR_MEMORY, key, (disk, fem, factor), _MAX_FACTOR_ENTRIES)
     return factor
