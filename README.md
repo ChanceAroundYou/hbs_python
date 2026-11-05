@@ -134,6 +134,7 @@ explicit `disk`.
 | `select_gauge(mu, disk, kind="default")` | `GaugeChoice` |
 | `compare_welding` / `compare_conformal_welding` / `welding_curve` | welding agreement as a degree-1 circle homeomorphism |
 | `get_beltrami_coefficient`, `lsqc_solver`, `mu_chop` | quasiconformal primitives |
+| `RiemannMap`, `riemann_map` | numerical Riemann map `D -> Omega` from interior harmonic measure + Cauchy integral; see [`docs/riemann-map.md`](docs/riemann-map.md) |
 | `get_unit_disk`, `get_rect`, `get_unit_disk_in_rect`, `Mesh`, `DiskMesh` | meshes |
 | `DEFAULT_MESH_PROFILE`, `MeshProfile` | requested default grid `(density=0.01, circle=500)`; informational only — explicit arguments still win |
 | `hbs.cache.load_unit_disk`, `hbs.cache.clear_memory_cache`, `hbs.cache.memory_cache_info` | file-backed mesh/FEM cache plus bounded in-process cache diagnostics and release |
@@ -255,7 +256,7 @@ The same default is available as `hbs.DEFAULT_MESH_PROFILE`
 in-process mesh/FEM/LU caches are bounded and can be released with
 `hbs.cache.clear_memory_cache()`; the on-disk cache is left untouched.
 
-## Measured on `img/example.png` (hbs 2.6.2, default mesh, 2026-11-05)
+## Measured on `img/example.png` (hbs 2.6.3, default mesh, 2026-11-05)
 
 ```
 engine=harmonic_measure  rung=raw  faces=60796  circle=500   solve 0.21 s warm (mesh cached)
@@ -306,6 +307,26 @@ are recorded in [CHANGELOG.md](https://github.com/ChanceAroundYou/hbs_python/blo
 5. **`lsqc_solver` needs the matching mesh and landmarks.** Landmark vertex indices map
    to target positions; `eps > 0` regularizes sharp corners where `|μ| → 1`.
 
+## Riemann maps
+
+`RiemannMap` computes a numerical Riemann map from the unit disk to a smooth
+simply connected Jordan domain.  It uses the interior harmonic-measure density
+(the normal derivative of the Green function) for the boundary correspondence
+and evaluates the map by the Cauchy integral; it does not use harmonic
+extension, and it is not the HBS parent map `H`.
+
+```python
+from hbs import RiemannMap
+
+rm = RiemannMap.from_boundary(bound, n=1024)
+z = rm(0.4 + 0.2j)
+rm.diagnostics.f_at_zero, rm.diagnostics.f_prime_at_zero
+rm.cauchy_riemann_residual()
+```
+
+See [`docs/riemann-map.md`](docs/riemann-map.md) for the construction,
+normalization, diagnostics and scope limits.
+
 ## Main modules
 
 - `hbs.py`: `get_hbs` / `get_hbs_result` / `reconstruct_from_hbs`
@@ -319,6 +340,8 @@ are recorded in [CHANGELOG.md](https://github.com/ChanceAroundYou/hbs_python/blo
 - `extension.py`: P1 finite-element harmonic extension, shared by both engines
 - `boundary_selection.py`: `solve_sliding_boundary` / `BoundarySelection` — Fourier
   boundary-correspondence selection for the PDE route (local solver)
+- `riemann.py`: `RiemannMap` / `riemann_map` — Green-function/harmonic-measure
+  boundary phase + Cauchy integral for a Riemann map `D -> Omega`
 - `cache.py`: file cache for the disk mesh and its FEM operator; bounded in-process
   disk/FEM/LU caches with `clear_memory_cache()` / `memory_cache_info()`
 - `gauges.py`: I₂ anchor, the paper's M3+M4 closed form, and the branch-free `c0` anchor

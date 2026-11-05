@@ -10,6 +10,37 @@ version newer than PyPI's latest describe work that is on `main` only.
 
 ## [Unreleased]
 
+## [2.6.3] — 2026-11-05
+
+### Added — `hbs.RiemannMap` / `hbs.riemann_map`
+
+- New public tool for a numerical Riemann map \(F:\mathbb D\to\Omega\) on a
+  smooth simply connected Jordan domain.  It computes the interior
+  harmonic-measure density \(q=\partial_n G\) (the normal derivative of the
+  Green function), integrates it to the circle phase \(\alpha\), and evaluates
+  \(F\) by the Cauchy integral.  It does **not** use harmonic extension and does
+  **not** identify the HBS parent map \(H:\mathbb D\to\mathbb D\) with \(F\).
+- `RiemannMap.from_boundary(bound, n=1024)` uses the same periodic spline as the
+  harmonic-measure engine; `RiemannMap.from_curve(curve, derivative, n=1024)`
+  accepts an analytic vectorized parameterization.  Clockwise input is reversed
+  internally.
+- The target value `F(0)` is reported, not assumed to be zero.  A source-circle
+  rotation is applied so that `F'(0)` is positive real without changing the
+  target domain.
+- `RiemannMap.__call__` and `.derivative()` evaluate \(F\) and \(F'\) by Cauchy
+  integrals.  `.cauchy_riemann_residual()` reports a five-point finite-difference
+  check of \(F_{\bar z}\), `max |mu|` and `min |F_z|`.
+- Validation against the known univalent map \(f_0(z)=z+0.15z^3\) with a
+  nonlinear boundary reparameterization: at \(n=1024\), interior max error vs
+  \(f_0\) about \(1.2\times10^{-10}\), five-point `max |F_zbar|` about
+  \(5\times10^{-14}\), and `max |F_z-f_0'|` about \(1\times10^{-9}\).  These are
+  finite-mesh readings for a smooth synthetic domain, not a general proof.
+- Scope: smooth positively oriented Jordan boundaries with positive interior
+  density.  Corners, cusps, rough contours, crowding in long thin domains and
+  multiply connected domains are outside this prototype; failures are explicit.
+- Docs: `docs/riemann-map.md`, README section and public API row; tests:
+  `tests/test_riemann.py`.
+
 ## [2.6.2] — 2026-11-05
 
 ### Changed — bounded in-process caches
@@ -899,6 +930,7 @@ no smooth reparameterization that fixes it.
   `post_deepen` parameter was removed entirely.
 - Nothing else in the public API changed.
 
+[2.6.3]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.6.2...v2.6.3
 [2.6.2]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.6.0...v2.6.2
 [2.6.0]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.4.0...v2.5.0
