@@ -107,3 +107,84 @@ def test_softmax_continuation_records_each_stage(case):
     assert [item["beta"] for item in out["history"]] == [10.0, 20.0]
     assert out["metrics"]["negative_or_zero_tets"] == 0
     assert out["seconds"] >= 0.0
+
+
+def _s_beta(mesh, values, beta, smoothing):
+    from hbs.volumetric import deformation_data
+
+    _, _, _, _, _, KO, KI = deformation_data(values, mesh)
+    if smoothing == "pair":
+        logk = np.log(np.concatenate([KO, KI]))
+    else:
+        logk = np.log(np.maximum(KO, KI))
+    top = float((beta * logk).max())
+    return top / beta + float(np.log(np.exp(beta * logk - top).sum())) / beta
+
+
+def test_pair_smoothing_respects_the_sandwich_bound(case):
+    _, mesh, initial = case
+    beta = 400.0
+    out = solve_softmax(mesh, initial, beta=beta, maxiter=5, delta=0.02)
+    assert out["smoothing"] == "pair"
+    log_m = float(np.log(out["metrics"]["max_K"]))
+    s_beta = _s_beta(mesh, out["values"], beta, "pair")
+    assert log_m <= s_beta
+    assert s_beta <= log_m + np.log(2 * len(mesh.tetra)) / beta
+
+
+def test_legacy_max_smoothing_respects_the_tighter_bound(case):
+    _, mesh, initial = case
+    beta = 400.0
+    out = solve_softmax(
+        mesh, initial, beta=beta, maxiter=5, delta=0.02, smoothing="max"
+    )
+    assert out["smoothing"] == "max"
+    log_m = float(np.log(out["metrics"]["max_K"]))
+    s_beta = _s_beta(mesh, out["values"], beta, "max")
+    assert log_m <= s_beta
+    assert s_beta <= log_m + np.log(len(mesh.tetra)) / beta
+
+
+def test_solve_softmax_rejects_unknown_smoothing(case):
+    _, mesh, initial = case
+    with pytest.raises(ValueError, match="smoothing"):
+        solve_softmax(mesh, initial, smoothing="median")
+
+
+def test_solve_softmax_rejects_nonpositive_maxiter(case):
+    _, mesh, initial = case
+    with pytest.raises(ValueError, match="maxiter"):
+        solve_softmax(mesh, initial, maxiter=0)
+
+
+def test_solve_softmax_sets_and_forwards_maxfun(case):
+    _, mesh, initial = case
+    default = solve_softmax(mesh, initial, maxiter=7, delta=0.02)
+    assert default["maxfun"] == 20 * 7
+    explicit = solve_softmax(mesh, initial, maxiter=7, delta=0.02, maxfun=12345)
+    assert explicit["maxfun"] == 12345
+
+
+def test_solve_softmax_stall_window_stops_early(case):
+    _, mesh, initial = case
+    out = solve_softmax(
+        mesh, initial, beta=40.0, maxiter=50, delta=0.02,
+        stall_window=3, stall_rel=1e9,
+    )
+    assert out["stopped_by"] == "stall"
+    assert out["nit"] <= 3
+    assert out["stall_window"] == 3
+    assert np.isfinite(out["objective_value"])
+
+
+def test_softmax_continuation_forwards_solver_options(case):
+    _, mesh, initial = case
+    out = solve_softmax_continuation(
+        mesh, initial, betas=(10, 20), maxiter=5, delta=0.02,
+        smoothing="max", maxfun=1234,
+    )
+    assert all(item["stopped_by"] for item in out["history"])
+    assert all("nfev" in item for item in out["history"])
+    np.testing.assert_allclose(
+        out["metrics"]["max_K"], distortion_metrics(out["values"], mesh)["max_K"]
+    )

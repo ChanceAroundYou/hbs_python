@@ -10,6 +10,38 @@ version newer than PyPI's latest describe work that is on `main` only.
 
 ## [Unreleased]
 
+## [2.6.0] — 2026-11-05
+
+### Changed — `solve_softmax`: smooth objective and stop conditions
+
+- Default smoothing is now `smoothing="pair"`: the log-sum-exp runs over the `2m`
+  entries `K_O` and `K_I` instead of the `m` entries `max(K_O, K_I)`. The old inner
+  `max` is non-differentiable exactly on the surface `K_O = K_I` where the discrete
+  minimax optimum sits (109 of 2368 tetrahedra at `|log K_O - log K_I| < 1e-4` at the
+  beta=40960 endpoint), so its analytic gradient was only a one-sided derivative and
+  `|grad|` could not go to zero. The pair objective is differentiable everywhere with
+  sandwich bound `log M <= S_beta <= log M + log(2m)/beta` (2.07e-4 at beta=40960,
+  m=2368); the legacy form keeps the tighter `log(m)/beta` bound and is still
+  available as `smoothing="max"`.
+- Default stop conditions no longer declare convergence early: `ftol=0`,
+  `gtol=1e-12`, `maxcor=100`, `maxls=60`, and `maxfun=20*maxiter` (scipy's default
+  `maxfun=15000` used to truncate silently once `maxiter` was raised).
+- New optional `stall_window` / `stall_rel`: stop when the relative decrease over a
+  window of iterations is at most `stall_rel`. It exits by raising internally because
+  scipy 1.18's L-BFGS-B ignores a `True` return from `callback`.
+- The result dict additionally reports `objective_value`, `smoothing`, `gradient_inf`,
+  `stopped_by`, `nfev`, `maxfun`, `ftol`, `gtol`, `stall_window`;
+  `solve_softmax_continuation` forwards arbitrary solver options and records
+  `nfev` / `stopped_by` / `gradient_inf` per stage.
+- **Numerical comparability**: runs of earlier versions are *not* reproduced by the
+  new defaults. Pass `smoothing="max", ftol=1e-10, gtol=1e-8, maxcor=10, maxls=20,
+  maxfun=15000` to reproduce pre-2.6.0 readings. On the 11 profile-shape cases the
+  pair objective with the new stop conditions reproduces the research-side 2m record
+  bit-for-bit (e.g. `peanut` 2.430216617416).
+- Tests: pair and legacy sandwich bounds, smoothing validation, `maxiter` validation,
+  `maxfun` default and override, stall-window termination, option forwarding through
+  the continuation wrapper.
+
 ## [2.5.0] — 2026-11-04
 
 ### Added — `hbs.tbs`: fixed-complete-circle TBS solver
@@ -809,6 +841,7 @@ no smooth reparameterization that fixes it.
   `post_deepen` parameter was removed entirely.
 - Nothing else in the public API changed.
 
+[2.6.0]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.3.4...v2.4.0
 [2.3.4]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.3.3...v2.3.4
