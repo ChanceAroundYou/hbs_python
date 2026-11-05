@@ -99,7 +99,10 @@ The shared FEM path now also caches the `disk`/`fem` objects and the `splu(A)`
 factorization in-process. `build_hbs` drops from about 134–155 ms per call to
 about 68 ms after the first factorization; the full `get_hbs(method="pde")`
 call is 2.2–4.1× faster than the pre-cache baseline on the six-shape set. First
-call still pays one factorization (about 69 ms).
+call still pays one factorization (about 69 ms). The in-process caches are
+bounded (LRU: 8 meshes, 8 FEM operators, 2 factorizations) so repeated custom
+`DiskMesh` objects do not grow memory without limit; `hbs.cache.clear_memory_cache()`
+releases them without touching the on-disk mesh/FEM cache.
 
 A same-benchmark comparison with accuracy, speed, feasibility and invariance is
 kept in `HBS-research/runs/三引擎同台对比_2026-11-04/报告.md`; the optimization

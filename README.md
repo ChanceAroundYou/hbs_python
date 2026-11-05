@@ -247,6 +247,12 @@ The HBS vector length is the face count of the mesh: the default
 boundary resolution follows `disk.circle_num`. `hbs.cache.load_unit_disk(density,
 circle_point_num)` returns `(disk, fem)` and caches both on disk.
 
+The same default is available as `hbs.DEFAULT_MESH_PROFILE`
+(`density=0.01`, `circle_point_num=500`). It is informational: explicit
+`density` / `circle_point_num` / `disk` arguments still take precedence. The
+in-process mesh/FEM/LU caches are bounded and can be released with
+`hbs.cache.clear_memory_cache()`; the on-disk cache is left untouched.
+
 ## Measured on `img/example.png` (hbs 2.3.3, default mesh, 2026-10-30)
 
 ```
