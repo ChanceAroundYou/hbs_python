@@ -41,15 +41,17 @@ def test_pde_engine_agrees_with_harmonic_measure():
     assert agreement.mu_rms < 0.1
 
 
-def test_pde_rejects_nonconvex_hard_oval():
-    """强非凸边界是 pde 内域 PDE 的已知域外输入；必须显式失败，不静默降级。"""
-    from hbs import get_hbs_result
+def test_pde_direct_solver_rejects_nonconvex_hard_oval():
+    """关闭几何延续时，强非凸边界仍必须显式失败，不静默降级。"""
+    from hbs._pipeline import prepare_boundary
+    from hbs.pde import pde_welding
 
     t = np.linspace(0.0, 2.0 * np.pi, 500, endpoint=False)
     z = np.cos(t) + 0.3 * np.cos(2 * t) + 1j * (np.sin(t) + 0.2 * np.sin(3 * t))
     bound = np.stack([z.real, z.imag], 1)
-    with pytest.raises(RuntimeError, match="pde"):
-        get_hbs_result(bound, circle_point_num=200, density=0.05, method="pde")
+    prepared = prepare_boundary(bound, 200, resample=False)
+    with pytest.raises(RuntimeError, match="PDE interior"):
+        pde_welding(prepared, circle_num=200, continuation=False)
 
 
 def test_pde_welding_is_rotation_covariant():

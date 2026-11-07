@@ -55,25 +55,56 @@ rotation. On the development shapes `bent_lobe` / `asym_dent3` / `ellipse`:
 welding rms `8e-4°` / `0.35°` / `8e-6°`, μ rms `0.0009` / `0.018` / `8e-7`.
 Rotation, translation, scaling and start-point rolls are invariant.
 
-The solver is local. Strong non-convex boundaries (for example
-`cos t + 0.3 cos 2t + i(sin t + 0.2 sin 3t)`) can leave the interior Robin residual
-around `0.13`; the engine then raises `RuntimeError` explicitly instead of silently
-degrading. The low-level entry is `hbs.pde.pde_welding`; its supported default is
-`n=128`.
+The solver is local. Direct Newton can miss the acceptance thresholds on strong
+non-convex boundaries (for example
+`cos t + 0.3 cos 2t + i(sin t + 0.2 sin 3t)`). The engine then retries the same
+Robin problem by geometric continuation; if both paths fail it raises
+`RuntimeError` explicitly instead of silently degrading. Passing
+`continuation=False` disables the retry and exposes the direct failure. The
+low-level entry is `hbs.pde.pde_welding`; its supported default is `n=128`.
+
+The engine's input ladder is `raw → resample500 → resample500+s2,s4,s8,s16,s32`
+(the last five are Gaussian smoothing levels). A degraded rung is reported as
+`HBSResult.rung`; it is never presented as an unmodified result.
 
 ### Selector continuation and warm start
 
 The PDE route does not need the standalone selector's `2e-7` residual. It uses
-`min_modes=64`, `max_modes=192`, `target_residual=3e-4`, and only allows an earlier
+`min_modes=64`, `max_modes=1024`, `target_residual=3e-4`, and only allows an earlier
 stop when the dense residual is already below `2e-8`. The engine gate is `3e-4`.
-This keeps the low-order stages for simple shapes, advances `asym_dent3` to 128
-instead of 192, and advances `three_lobe` to 64 instead of 128; measured
-welding/μ changes are at most about 2% on those shapes, and zero on the others.
+Before the interior solve, a 192-mode precheck rejects boundaries whose dense
+residual exceeds `2e-2` or whose parameter speed is non-positive. This keeps the
+low-order stages for simple shapes, advances `asym_dent3` to 128 instead of 192,
+and advances `three_lobe` to 64 instead of 128; measured welding/μ changes are at
+most about 2% on those shapes, and zero on the others.
 
 For `n >= 256`, `pde_welding` first solves `n=96`, periodically interpolates `u`
 onto the fine grid, and uses it as the initial guess. On the development shapes
 the interior iterations at `n=512` fall from 7 to 3 (analytic/ellipse/peanut/
 bent) and from 11 to 4 (`asym_dent3`), with the same residual scale.
+
+### Geometric continuation
+
+If the direct solve does not pass its raw thresholds, `pde_welding` continues the
+same Robin equation along a shape homotopy: the first-harmonic ellipse
+(`fraction=0`) moves toward the input boundary (`fraction=1`). The Fourier shape
+keeps at most 128 modes, the resolution starts at `max(n, 512)` and may rise to
+1024, and each accepted step warm-starts the next. The final accepted target is
+always the original boundary; the continuation does not change the PDE equation
+and does not switch engines.
+
+The continuation path uses PCHIP for the final circle map to avoid cubic-spline
+overshoot on high-curvature steps; the direct path keeps the original
+CubicSpline. The M1 centering projects only floating-point negative steps below
+`1e-7`; a larger non-monotonicity still raises. `diagnostics` reports
+`continuation_used`, the per-step `continuation` history, `warm_start_n`, and the
+usual selector/Robin/M1 residuals.
+
+On the frozen 7-shape non-convex/corner set this makes all 7 pass the existing
+gates while the 4 previously favorable shapes keep their P1. It is not a
+universal replacement: on the 100-shape set the PDE route succeeds on 92/100
+(vs 90/100 for harmonic_measure), but its median forward time is about 0.99 s
+(vs 58 ms) and natural-shape accuracy is not better. Failures remain explicit.
 
 ### Performance note
 

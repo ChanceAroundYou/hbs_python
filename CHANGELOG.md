@@ -10,6 +10,31 @@ version newer than PyPI's latest describe work that is on `main` only.
 
 ## [Unreleased]
 
+## [2.6.4] — 2026-11-07
+
+### Robustness — PDE route
+
+- `method="pde"` now falls back, after the direct interior Newton solve misses its
+  raw acceptance thresholds, to a geometric continuation of the same Robin
+  problem: first-harmonic ellipse → input boundary in Fourier space (≤128 modes),
+  warm-started from the previous step, at `n=512` and then `n=1024`. The final
+  accepted step is always `fraction=1`; there is no switch to another engine.
+  `pde_welding(..., continuation=False)` preserves the direct-only behavior for
+  diagnostics and tests.
+- The PDE input ladder now extends the shared `raw → resample500` prefix with
+  Gaussian smoothing `σ=2,4,8,16,32`; the selector cap increases from 192 to 1024
+  modes and a precheck rejects an unusable boundary before the interior solve.
+  Continuation paths use PCHIP for the final circle map; direct paths keep
+  CubicSpline so existing P1 readings are unchanged. M1 monotonicity projects only
+  floating-point negative steps smaller than `1e-7`; larger violations still fail
+  explicitly.
+- On the frozen 7-shape non-convex/corner set, all 7 now pass the existing
+  selector/Robin/normalization/augmentation/M1 gates; the 4 previously favorable
+  shapes retain P1 (paired ratio 1.000). This is not a universal replacement: on
+  the 100-shape benchmark 92/100 succeed, versus 90/100 for harmonic_measure;
+  median forward time is about 0.99 s versus 58 ms, and natural-shape accuracy is
+  not better. PDE remains an explicit engine, not the default.
+
 ### Performance — PDE route
 
 - The PDE selector uses a 4× collocation grid (standalone default remains 8×)
@@ -947,6 +972,7 @@ no smooth reparameterization that fixes it.
   `post_deepen` parameter was removed entirely.
 - Nothing else in the public API changed.
 
+[2.6.4]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.6.3...v2.6.4
 [2.6.3]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.6.2...v2.6.3
 [2.6.2]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.6.0...v2.6.2
 [2.6.0]: https://github.com/ChanceAroundYou/hbs_python/compare/v2.5.0...v2.6.0

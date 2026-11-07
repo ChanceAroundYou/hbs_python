@@ -82,7 +82,8 @@ engine that fails retries only inside its own input ladder
 raw → resample(500) → resample(500) + Gaussian σ=2 → resample(500) + Gaussian σ=4
 ```
 
-and raises `RuntimeError` (with `__cause__` chained) if every rung fails — it will not
+The PDE engine additionally tries `σ=8,16,32`; if every rung fails the engine raises
+`RuntimeError` (with `__cause__` chained) — it will not
 return a degenerate curve, and will not switch engines. The rung that succeeded is
 reported in `HBSResult.rung`: anything other than `"raw"` is a **degraded** result
 (usable, but with fidelity an order of magnitude worse), so surface it to your users.
@@ -161,8 +162,10 @@ not a continuous certificate.
 `Δu = 0, κ + ∂ₙu = eᵘ` and the paper's M1 centering `Σ Φ₁⁻¹(z_k)=0`. It does not
 use the harmonic-measure density. After M1 alignment it matches
 `harmonic_measure` up to a source-circle rotation, and it is invariant under
-rotation/translation/scaling/start-point rolls. Strong non-convex boundaries are a
-known domain restriction and fail explicitly with `RuntimeError`.
+rotation/translation/scaling/start-point rolls. If direct Newton fails, the engine
+retries the same Robin problem by Fourier geometric continuation before raising
+`RuntimeError`; it does not switch engines. Strong non-convex boundaries are still
+a domain restriction, and failures remain explicit.
 
 See [`docs/pde-engine.md`](docs/pde-engine.md) for the equations, diagnostics,
 measured agreement, performance, and the full domain-restriction note.

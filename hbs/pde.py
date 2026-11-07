@@ -49,7 +49,7 @@ from functools import lru_cache
 from time import perf_counter
 
 import numpy as np
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import CubicSpline, PchipInterpolator
 from scipy.linalg import lu_factor, lu_solve
 from scipy.optimize import root
 
@@ -58,7 +58,7 @@ from hbs._harmonic_measure.direct import _operator
 __all__ = ["pde_welding", "solve_metric_trace"]
 
 #: 引擎默认选择器上限与 PDE 侧的宽松验收门（见 `docs/pde-engine.md`）。
-_SELECTION_MAX_MODES = 192
+_SELECTION_MAX_MODES = 1024
 _SELECTION_MIN_MODES = 64
 _SELECTION_MIN_ABSOLUTE = 2e-8
 _SELECTION_TARGET = 3e-4
@@ -90,6 +90,59 @@ class _BoundaryShape:
 
     def derivative(self, t):
         return self._spline.derivative(t)
+
+
+class _FourierShape:
+    """周期 Fourier 形状适配器；用于硬边界的几何延续。
+
+    `curve`/`derivative` 用输入采样点的 Fourier 插值，保留全部频率；`scaled(f)`
+    只缩放非 ±1/0 频率，``f=0`` 是首调和椭圆、``f=1`` 是输入曲线。该适配器
+    不改变 PDE 方程，只提供延续路径；最终目标仍是 ``f=1`` 的同一条边界。
+    """
+
+    def __init__(self, coefficients, frequencies, sample_t):
+        self._coefficients = np.asarray(coefficients, complex)
+        self._frequencies = np.asarray(frequencies, float)
+        self.sample_t = np.asarray(sample_t, float)
+
+    @classmethod
+    def from_boundary(cls, bound: np.ndarray, max_modes: int = 128):
+        z = np.asarray(bound[:, 0], float) + 1j * np.asarray(bound[:, 1], float)
+        area = np.sum(z.real * np.roll(z.imag, -1) - z.imag * np.roll(z.real, -1))
+        if area < 0:
+            z = z[::-1]
+        n = len(z)
+        edges = np.abs(np.diff(np.r_[z, z[0]]))
+        s = np.r_[0.0, np.cumsum(edges)]
+        sample_t = 2.0 * np.pi * s / s[-1]
+        frequencies = np.fft.fftfreq(n, 1.0 / n)
+        coefficients = np.fft.fft(z) / n
+        # 输入数据本身是有限 Fourier 形状；保留过高频会把采样噪声带进
+        # 延续路径。128 阶与数据清单的 degree=128 一致，且是这条路径的
+        # 数值正则化，不改变最终 PDE 方程。
+        coefficients[np.abs(frequencies) > max_modes] = 0.0
+        return cls(coefficients, frequencies, sample_t)
+
+    def scaled(self, fraction: float):
+        coefficients = self._coefficients.copy()
+        active = (self._frequencies != 0)
+        active &= (self._frequencies != 1)
+        active &= (self._frequencies != -1)
+        coefficients[active] *= fraction
+        return _FourierShape(
+            coefficients, self._frequencies, self.sample_t
+        )
+
+    def _evaluate(self, t, order):
+        t = np.asarray(t, float).ravel()
+        phase = np.exp(1j * np.outer(t, self._frequencies))
+        return phase @ (self._coefficients * (1j * self._frequencies) ** order)
+
+    def curve(self, t):
+        return self._evaluate(t, 0)
+
+    def derivative(self, t):
+        return self._evaluate(t, 1)
 
 
 @lru_cache(maxsize=8)
@@ -298,9 +351,107 @@ def _m1_center(alpha: np.ndarray) -> tuple[np.ndarray, complex, float]:
         1.0 - a * np.exp(-1j * np.asarray(alpha, float))
     )
     centered -= centered[0]
-    if np.min(np.diff(centered)) <= 0:
+    diff = np.diff(centered)
+    if diff.min() < -1e-7:
         raise RuntimeError("PDE M1-centered angle is not monotone")
+    if diff.min() <= 0.0:
+        # 积分/根求解的浮点末位可能产生极小负步长；投影到单调序列。
+        # 超过 1e-7 的真实非单调仍显式失败。
+        centered = np.maximum.accumulate(centered)
+        centered -= centered[0]
     return centered, a, residual
+
+
+def _metric_continuation(bound, n, max_iterations):
+    """几何 Fourier 延续：首调和椭圆 → 输入边界，每步解同一 Robin 方程。
+
+    返回 ``(shape, u, alpha, diagnostics, history)`` 或 ``None``。只在直接
+    Newton 未通过原始验收时调用；最终一步必须是 ``fraction=1.0`` 的原边界，
+    不会静默换到另一个引擎。分辨率从 ``max(n, 512)`` 起步，必要时升到 1024。
+    """
+    base = _FourierShape.from_boundary(bound)
+    n_values = [max(int(n), 512)]
+    if n_values[0] < 1024:
+        n_values.append(1024)
+
+    for candidate_n in n_values:
+        t = 2.0 * np.pi * np.arange(candidate_n) / candidate_n
+        first = base.scaled(0.0)
+        try:
+            u, alpha, diagnostics = solve_metric_trace(
+                first,
+                n=candidate_n,
+                max_iterations=max_iterations,
+                robin_tolerance=1e-3,
+                augmentation_tolerance=1e-3,
+            )
+        except Exception:  # noqa: BLE001, S112 - 失败时换分辨率继续尝试
+            continue
+        if not diagnostics["geometry_pde_accepted"]:
+            continue
+
+        current = 0.0
+        step = 0.2
+        previous_shape = first
+        history = [
+            {
+                "fraction": 0.0,
+                "n": candidate_n,
+                "accepted": True,
+                "robin": diagnostics["curvature_robin_max"],
+                "iterations": diagnostics["iterations"],
+            }
+        ]
+        for _ in range(60):
+            target = min(1.0, current + step)
+            candidate = base.scaled(target)
+            initial = u + np.log(
+                np.abs(previous_shape.derivative(t))
+                / np.abs(candidate.derivative(t))
+            )
+            try:
+                trial_u, trial_alpha, trial_diagnostics = solve_metric_trace(
+                    candidate,
+                    n=candidate_n,
+                    initial=initial,
+                    max_iterations=max_iterations,
+                    robin_tolerance=1e-3,
+                    augmentation_tolerance=1e-3,
+                )
+                accepted = bool(trial_diagnostics["geometry_pde_accepted"])
+            except Exception:  # noqa: BLE001 - 退回更小延续步
+                accepted = False
+                trial_diagnostics = None
+            history.append(
+                {
+                    "fraction": target,
+                    "n": candidate_n,
+                    "accepted": accepted,
+                    "robin": (
+                        None if trial_diagnostics is None
+                        else trial_diagnostics["curvature_robin_max"]
+                    ),
+                    "iterations": (
+                        None if trial_diagnostics is None
+                        else trial_diagnostics["iterations"]
+                    ),
+                }
+            )
+            if accepted:
+                u, alpha, diagnostics = (
+                    trial_u, trial_alpha, trial_diagnostics
+                )
+                current = target
+                previous_shape = candidate
+                step = min(0.25, step * 1.4)
+                if current >= 1.0:
+                    diagnostics["continuation"] = history
+                    return base, u, alpha, diagnostics, history
+            else:
+                step *= 0.5
+                if step < 0.002:
+                    break
+    return None
 
 
 def pde_welding(
@@ -312,6 +463,7 @@ def pde_welding(
     warm_start: bool = True,
     selection_target_residual: float = _SELECTION_TARGET,
     selection_collocation_factor: int = 4,
+    continuation: bool = True,
 ) -> dict:
     """用「外域 Fourier 条件 + 内域平坦度量 PDE」构造焊接种。
 
@@ -329,7 +481,8 @@ def pde_welding(
     停止目标（默认 ``3e-4``）；选择器至少走到 64 阶，只有绝对残差低于
     ``2e-8`` 时才允许更早停止；引擎验收门取目标与 ``3e-4`` 的较大值。
     ``selection_collocation_factor`` 是选择器配点倍数（默认 4；6 形状实测
-    与 8 的焊接/μ 逐位一致，2 会失败）。
+    与 8 的焊接/μ 逐位一致，2 会失败）。``continuation=False`` 关闭几何延续，
+    只跑直接 Newton；用于测试直接求解的域外行为。
     """
     from hbs.boundary_selection import solve_sliding_boundary
 
@@ -341,6 +494,24 @@ def pde_welding(
         raise ValueError("circle_num must be at least 3")
 
     shape = _BoundaryShape(bound)
+    precheck = solve_sliding_boundary(
+        shape.curve,
+        shape.derivative,
+        max_modes=192,
+        min_modes=_SELECTION_MIN_MODES,
+        min_absolute_residual=_SELECTION_MIN_ABSOLUTE,
+        target_residual=selection_target_residual,
+        collocation_factor=selection_collocation_factor,
+    )
+    if (
+        precheck.diagnostics["dense_forbidden_residual"] > 2e-2
+        or precheck.diagnostics["dense_min_parameter_speed"] <= 0
+    ):
+        raise RuntimeError(
+            "boundary selection precheck failed before the interior solve "
+            f"(dense={precheck.diagnostics['dense_forbidden_residual']:.2e}, "
+            f"speed={precheck.diagnostics['dense_min_parameter_speed']:.2e})"
+        )
     initial = None
     warm_start_n = None
     if warm_start and n >= _WARM_START_THRESHOLD:
@@ -356,22 +527,45 @@ def pde_welding(
         initial = np.interp(t_fine, t_coarse, coarse_u, period=2.0 * np.pi)
         warm_start_n = _WARM_START_N
 
-    _u, alpha, diagnostics = solve_metric_trace(
-        shape,
-        n=n,
-        initial=initial,
-        max_iterations=max_iterations,
-        robin_tolerance=1e-3,
-        augmentation_tolerance=1e-3,
-    )
-    diagnostics["warm_start_n"] = warm_start_n
-    if not diagnostics["geometry_pde_accepted"]:
-        raise RuntimeError(
-            "PDE interior solve did not meet its raw acceptance thresholds "
-            f"(robin={diagnostics['curvature_robin_max']:.2e}, "
-            f"moment={diagnostics['normalization_residual']:.2e}, "
-            f"augmentation={diagnostics['augmentation_norm']:.2e})"
+    try:
+        _u, alpha, diagnostics = solve_metric_trace(
+            shape,
+            n=n,
+            initial=initial,
+            max_iterations=max_iterations,
+            robin_tolerance=1e-3,
+            augmentation_tolerance=1e-3,
         )
+        diagnostics["warm_start_n"] = warm_start_n
+        direct_error = None
+        if not diagnostics["geometry_pde_accepted"]:
+            direct_error = RuntimeError(
+                "PDE interior solve did not meet its raw acceptance thresholds "
+                f"(robin={diagnostics['curvature_robin_max']:.2e}, "
+                f"moment={diagnostics['normalization_residual']:.2e}, "
+                f"augmentation={diagnostics['augmentation_norm']:.2e})"
+            )
+    except Exception as exc:  # noqa: BLE001 - 继续尝试同方程的几何延续
+        diagnostics = None
+        direct_error = exc
+
+    if direct_error is not None:
+        if not continuation:
+            raise direct_error
+        continued = _metric_continuation(
+            bound, n=max(n, 512), max_iterations=max_iterations
+        )
+        if continued is None:
+            raise RuntimeError(
+                "PDE interior solve failed both direct Newton and geometric "
+                "continuation"
+            ) from direct_error
+        shape, _u, alpha, diagnostics, history = continued
+        diagnostics["warm_start_n"] = None
+        diagnostics["continuation_used"] = True
+        diagnostics["continuation"] = history
+    else:
+        diagnostics["continuation_used"] = False
 
     alpha, m1_center, m1_residual = _m1_center(alpha)
     diagnostics["m1_center"] = m1_center
@@ -403,11 +597,20 @@ def pde_welding(
 
     theta = 2.0 * np.pi * np.arange(circle_num) / circle_num
     parameter = np.mod(selection.parameter(theta), 2.0 * np.pi)
-    t, _, _ = _integration_matrix(n)
-    relative = CubicSpline(
-        np.r_[t, 2.0 * np.pi], np.r_[alpha - t, 0.0], bc_type="periodic"
-    )(parameter)
-    y = np.exp(1j * (parameter + relative))
+    t, _, _ = _integration_matrix(diagnostics["boundary_count"])
+    if diagnostics.get("continuation_used"):
+        # 延续路径的 alpha 是单调积分；用 PCHIP 避免高曲率处三次样条过冲
+        # 导致最终圆映射非单调。parameter 已取模到 [0, 2π)。
+        alpha_periodic = PchipInterpolator(
+            np.r_[t, 2.0 * np.pi], np.r_[alpha, alpha[0] + 2.0 * np.pi]
+        )(parameter)
+        y = np.exp(1j * alpha_periodic)
+    else:
+        # 保持原有直接路径的插值与 rung/P1 读数不变。
+        relative = CubicSpline(
+            np.r_[t, 2.0 * np.pi], np.r_[alpha - t, 0.0], bc_type="periodic"
+        )(parameter)
+        y = np.exp(1j * (parameter + relative))
     if not np.all(np.isfinite(y)):
         raise RuntimeError("PDE welding produced non-finite boundary values")
     if np.any(np.diff(np.unwrap(np.angle(y))) <= 0):

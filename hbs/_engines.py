@@ -27,8 +27,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
@@ -82,7 +82,7 @@ def _result(
     )
 
 
-def _rungs(bound: np.ndarray) -> "list[tuple[str, np.ndarray]]":
+def _rungs(bound: np.ndarray, sigmas=(2.0, 4.0)) -> list[tuple[str, np.ndarray]]:
     """失败时的输入阶梯：原始 → 弧长重采样 → 逐级高斯平滑。
 
     像素阶梯轮廓、噪声轮廓会让调和测度引擎解出负的密度，直接失败。这几级是
@@ -94,7 +94,7 @@ def _rungs(bound: np.ndarray) -> "list[tuple[str, np.ndarray]]":
     resampled = _resample_boundary(bound, 500)
     yield "raw", bound
     yield "resample500", resampled
-    for sigma in (2.0, 4.0):
+    for sigma in sigmas:
         yield (f"resample500+s{sigma:g}",
                gaussian_filter1d(resampled, sigma, axis=0, mode="wrap"))
 
@@ -104,6 +104,7 @@ def _first_success(
     bound: np.ndarray,
     circle_num: int,
     attempt: Callable[[np.ndarray], ConformalWelding],
+    rungs=None,
 ) -> WeldingResult:
     """按输入阶梯逐级尝试一个引擎，返回第一个成功的结果。
 
@@ -112,14 +113,15 @@ def _first_success(
     成功判据包含「在源圆均匀网格上取样」（`_result`）：取样是该引擎自己的收尾
     步骤，失败时同样轮到下一级阶梯，而不是把异常漏出共用后端。
     """
+    rung_list = list(_rungs(bound) if rungs is None else rungs)
     last: Exception | None = None
-    for rung, candidate in _rungs(bound):
+    for rung, candidate in rung_list:
         try:
             return _result(attempt(candidate), rung, engine, circle_num)
         except (RuntimeError, ValueError, ConformalWeldingNumericalError) as exc:
             last = exc
     raise RuntimeError(
-        f'{engine} 引擎在原始输入与全部 {len(tuple(_rungs(bound))) - 1} 级降级重试上'
+        f'{engine} 引擎在原始输入与全部 {len(rung_list) - 1} 级降级重试上'
         f'均失败（最后错误：{type(last).__name__}: {last}）。'
         "该引擎不适合这条边界；换 method 是**显式**选择，不会自动发生。"
     ) from last
@@ -154,6 +156,7 @@ def pde(bound: np.ndarray, circle_num: int) -> WeldingResult:
         lambda candidate: ConformalWelding.from_harmonic_measure(
             pde_welding(candidate, circle_num=circle_num)
         ),
+        rungs=_rungs(bound, sigmas=(2.0, 4.0, 8.0, 16.0, 32.0)),
     )
 
 
