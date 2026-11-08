@@ -19,7 +19,8 @@ setup(
     extras_require={
         "plot": ["matplotlib"],         # hbs.plotting 绘图
         "boundary": ["opencv-python"],  # hbs.utils.boundary 图像边界提取
-        "all": ["matplotlib", "opencv-python"],
+        "generalized": ["triangle"],    # hbs.generalized_hbs 物理域三角化
+        "all": ["matplotlib", "opencv-python", "triangle"],
     },
     classifiers=[
         "Programming Language :: Python :: 3",

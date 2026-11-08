@@ -45,7 +45,16 @@ from .weld_compare import (
     welding_curve,
 )
 
-from . import conformal_welding, gauges, mesh, qc, tbs, utils, volumetric
+from . import (
+    conformal_welding,
+    gauges,
+    generalized_hbs,
+    mesh,
+    qc,
+    tbs,
+    utils,
+    volumetric,
+)
 
 __all__ = [
     "__version__",
@@ -78,6 +87,8 @@ __all__ = [
     # 自由边界对应选择（PDE 路线）
     "BoundarySelection",
     "solve_sliding_boundary",
+    # 任意物理基底的广义 HBS（可选 triangle 依赖）
+    "generalized_hbs",
     # 拟共形
     "get_beltrami_coefficient",
     "lsqc_solver",
