@@ -35,10 +35,16 @@ def face_gradients(z, faces):
 
 
 def face_fields(values, faces, gx, gy):
-    """P1 field and Wirtinger derivatives from cached face gradients."""
-    tri = values[faces]
-    fx = np.sum(tri*gx, axis=1)
-    fy = np.sum(tri*gy, axis=1)
+    """P1 field and Wirtinger derivatives from cached face gradients.
+
+    The three vertex gathers avoid materializing the ``(faces, 3)`` complex
+    temporary that ``values[faces]`` creates. The arithmetic is the same
+    three-term sum, so the result is bit-identical to the old expression.
+    """
+    fx = (values[faces[:, 0]]*gx[:, 0] + values[faces[:, 1]]*gx[:, 1]
+          + values[faces[:, 2]]*gx[:, 2])
+    fy = (values[faces[:, 0]]*gy[:, 0] + values[faces[:, 1]]*gy[:, 1]
+          + values[faces[:, 2]]*gy[:, 2])
     return 0.5*(fx - 1j*fy), 0.5*(fx + 1j*fy), np.imag(np.conj(fx)*fy)
 
 

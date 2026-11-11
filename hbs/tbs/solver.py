@@ -32,6 +32,7 @@ import numpy as np
 from scipy.optimize import linprog, minimize
 from scipy.sparse import coo_matrix, csr_matrix, hstack
 
+from . import _fast_kernel
 from .boundary import LocalC2Boundary
 from .geometry import (disk_mesh, face_fields, face_gradients, face_state,
                        regularized_target_boundary, tutte_initial_map)
@@ -42,29 +43,39 @@ from .geometry import (disk_mesh, face_fields, face_gradients, face_state,
 LSE_BETAS = (16, 64, 256, 1024, 4096, 16384, 65536, 262144, 1048576)
 LSE_ITERATIONS = 200
 LSE_MAX_BISECTIONS = 30
+LSE_TRACK_STRIDE = 50
 
 
 def _face_constraints(x, *, values_template, faces, gx, gy, n_interior,
-                      ratio_scales):
+                      ratio_scales, fields=None, operators=None):
     """Return facewise ``kappa-|mu_f| >= 0`` and its analytic Jacobian.
 
     A 1e-10 relative smoothing avoids the undefined derivative of
     ``|f_zbar|`` at zero. It is many orders below the discretization error.
     The denominator is regularized by the same fixed face scale so that
     degenerate ``f_z=0`` faces remain strongly infeasible when ``kappa<1``.
+    ``fields`` and ``operators`` may carry the already evaluated
+    ``(fz, fbar)`` and ``(cz, cb)`` arrays so a caller that needs both the
+    ratios and this Jacobian does not evaluate ``face_fields`` twice.
     """
     values = values_template.copy()
     values[:n_interior] = x[:n_interior] + 1j*x[n_interior:2*n_interior]
     kappa = float(x[-1])
-    fz, fbar, _ = face_fields(values, faces, gx, gy)
+    if fields is None:
+        fz, fbar, _ = face_fields(values, faces, gx, gy)
+    else:
+        fz, fbar = fields
     fz2, fb2 = np.abs(fz)**2, np.abs(fbar)**2
     eps2 = 1e-20*np.asarray(ratio_scales, dtype=float)
     ratio = np.sqrt(fb2 + eps2)/np.sqrt(fz2 + eps2)
     constraints = kappa - ratio
 
     n_faces = len(faces)
-    cz = 0.5*(gx - 1j*gy)
-    cb = 0.5*(gx + 1j*gy)
+    if operators is None:
+        cz = 0.5*(gx - 1j*gy)
+        cb = 0.5*(gx + 1j*gy)
+    else:
+        cz, cb = operators
     rows, cols, data = [], [], []
     for local in range(3):
         da_x, da_y = cz[:, local], 1j*cz[:, local]
@@ -89,6 +100,73 @@ def _face_constraints(x, *, values_template, faces, gx, gy, n_interior,
     ).tocsr()
     jacobian.sum_duplicates()
     return constraints, jacobian
+
+
+def _constraint_structure(faces, n_interior, gx, gy):
+    """Precompute the fixed sparsity of the face-constraint Jacobian.
+
+    The mesh, the interior/boundary split and the local face operators never
+    change during an LSE stage. Only the six vertex entries and the kappa
+    column change with the point. This structure lets the dense-gradient path
+    fill one flat array and scatter it with ``np.bincount`` instead of
+    rebuilding COO rows, sorting columns and converting to CSR at every
+    objective evaluation. Column indices are sorted inside each row, so the
+    summation order matches ``csr_matrix`` (and ``.T @ weights``) exactly.
+    """
+    faces = np.asarray(faces, dtype=np.int64)
+    n_faces = len(faces)
+    n_variables = 2*n_interior + 1
+    kappa_column = 2*n_interior
+    row_entries = [[] for _ in range(n_faces)]
+    active_faces = []
+    for local in range(3):
+        nodes = faces[:, local]
+        active = nodes < n_interior
+        face_ids = np.flatnonzero(active)
+        vertex_ids = nodes[active]
+        active_faces.append(face_ids)
+        for face_id, vertex_id in zip(face_ids.tolist(), vertex_ids.tolist()):
+            row_entries[face_id].append((vertex_id, local, 0))
+            row_entries[face_id].append(
+                (n_interior + vertex_id, local, 1))
+    lengths = np.empty(n_faces, dtype=np.int64)
+    for face_id, entries in enumerate(row_entries):
+        entries.append((kappa_column, -1, 2))
+        entries.sort(key=lambda entry: entry[0])
+        lengths[face_id] = len(entries)
+    indptr = np.empty(n_faces + 1, dtype=np.int64)
+    indptr[0] = 0
+    np.cumsum(lengths, out=indptr[1:])
+    nnz = int(indptr[-1])
+    indices = np.empty(nnz, dtype=np.int64)
+    kinds = np.empty((nnz, 2), dtype=np.int64)
+    position = 0
+    for entries in row_entries:
+        for column, local, kind in entries:
+            indices[position] = column
+            kinds[position] = (local, kind)
+            position += 1
+    rows = np.repeat(np.arange(n_faces, dtype=np.int64), lengths)
+    data_pos_x, data_pos_y = [], []
+    for local in range(3):
+        data_pos_x.append(np.flatnonzero(
+            (kinds[:, 0] == local) & (kinds[:, 1] == 0)))
+        data_pos_y.append(np.flatnonzero(
+            (kinds[:, 0] == local) & (kinds[:, 1] == 1)))
+    grad_pos = np.flatnonzero(indices < kappa_column)
+    return {
+        "shape": (n_faces, n_variables),
+        "indptr": indptr,
+        "indices": indices,
+        "rows": rows,
+        "nnz": nnz,
+        "data_pos_x": data_pos_x,
+        "data_pos_y": data_pos_y,
+        "active_faces": active_faces,
+        "grad_pos": grad_pos,
+        "grad_indices": indices[grad_pos],
+        "grad_rows": rows[grad_pos],
+    }
 
 
 def _linear_minimax_step(ratios, gradients, radius, *, feasibility_tolerance,
@@ -134,7 +212,10 @@ def _lse_context(z, faces, gx, gy, n_interior, values):
     return {"z": np.asarray(z), "faces": np.asarray(faces),
             "gx": gx, "gy": gy, "n_interior": int(n_interior),
             "values": np.asarray(values, dtype=complex),
-            "ratio_scales": np.maximum(np.abs(fz)**2 + np.abs(fbar)**2, 1e-12)}
+            "ratio_scales": np.maximum(np.abs(fz)**2 + np.abs(fbar)**2, 1e-12),
+            "operators": (0.5*(gx - 1j*gy), 0.5*(gx + 1j*gy)),
+            "constraint_structure": _constraint_structure(
+                faces, int(n_interior), gx, gy)}
 
 
 def _lse_evaluate(x, context):
@@ -142,14 +223,65 @@ def _lse_evaluate(x, context):
     n_interior = context["n_interior"]
     values = context["values"].copy()
     values[:n_interior] = x[:n_interior] + 1j*x[n_interior:2*n_interior]
-    ratios, jacobian = face_state(values, context["faces"], context["gx"],
-                                  context["gy"])
+    fz, fbar, jacobian = face_fields(values, context["faces"], context["gx"],
+                                     context["gy"])
+    ratios = np.abs(fbar/fz)
     _, constraint_jacobian = _face_constraints(
         np.r_[x[:n_interior], x[n_interior:2*n_interior], 0.0],
         values_template=values, faces=context["faces"], gx=context["gx"],
         gy=context["gy"], n_interior=n_interior,
-        ratio_scales=context["ratio_scales"])
+        ratio_scales=context["ratio_scales"], fields=(fz, fbar),
+        operators=context.get("operators"))
     return ratios, (-constraint_jacobian[:, :-1]).tocsr(), float(np.min(jacobian))
+
+
+def _lse_evaluate_dense(x, context):
+    """Ratios, Jacobian data and min J for the dense-gradient LSE path.
+
+    The arithmetic matches :func:`_face_constraints` up to last-bit operation
+    order; only the COO/CSR assembly is replaced by a fill of the precomputed
+    structure. Callers obtain the gradient with :func:`_dense_gradient`.
+
+    The fill hoists ``conj(fbar)``, ``conj(fz)`` and the two eps-regularized
+    reciprocals out of the local loop and reads the ``y`` derivative from the
+    imaginary part of the same product (``Re(conj(a)*1j*b) = -Im(conj(a)*b)``),
+    which halves the complex temporaries of the direct expression.
+    """
+    n_interior = context["n_interior"]
+    values = context["values"].copy()
+    values[:n_interior] = x[:n_interior] + 1j*x[n_interior:2*n_interior]
+    fz, fbar, jacobian = face_fields(values, context["faces"], context["gx"],
+                                     context["gy"])
+    ratios = np.abs(fbar/fz)
+    fz2, fb2 = np.abs(fz)**2, np.abs(fbar)**2
+    eps2 = 1e-20*np.asarray(context["ratio_scales"], dtype=float)
+    ratio = np.sqrt(fb2 + eps2)/np.sqrt(fz2 + eps2)
+    inv_fb2, inv_fz2 = 1.0/(fb2 + eps2), 1.0/(fz2 + eps2)
+    conj_fbar, conj_fz = np.conj(fbar), np.conj(fz)
+    structure = context["constraint_structure"]
+    data = np.ones(structure["nnz"], dtype=float)
+    cz, cb = context["operators"]
+    for local in range(3):
+        # Re(conj(a) * 1j*b) = -Im(conj(a)*b), so one complex product per
+        # operator yields both the x and the y derivative.
+        bar_term = conj_fbar*cb[:, local]
+        z_term = conj_fz*cz[:, local]
+        dr_x = ratio*(np.real(bar_term)*inv_fb2 - np.real(z_term)*inv_fz2)
+        dr_y = ratio*(np.imag(z_term)*inv_fz2 - np.imag(bar_term)*inv_fb2)
+        active = structure["active_faces"][local]
+        data[structure["data_pos_x"][local]] = -dr_x[active]
+        data[structure["data_pos_y"][local]] = -dr_y[active]
+    return ratios, data, float(np.min(jacobian))
+
+
+def _dense_gradient(data, weights, context):
+    """``-A.T @ weights`` for the constraint data ``A`` in ``data``."""
+    structure = context["constraint_structure"]
+    n_interior = context["n_interior"]
+    return -np.bincount(
+        structure["grad_indices"],
+        weights=data[structure["grad_pos"]]*weights[structure["grad_rows"]],
+        minlength=2*n_interior)
 
 
 def _softmax(beta, ratios):
@@ -160,46 +292,91 @@ def _softmax(beta, ratios):
     return weights/total, float(np.max(ratios) + np.log(total)/beta)
 
 
-def _lse_stage(x, context, beta, max_iterations):
+def _lse_stage(x, context, beta, max_iterations, *, maxcor=20,
+               track_stride=LSE_TRACK_STRIDE):
     """One L-BFGS stage on ``F_beta = log(sum exp(beta*r_f))/beta``.
 
     ``F_beta`` is an upper surrogate for ``max_f r_f``; the stage never
     reports the surrogate as a result, only the point it reaches.
     """
+    track_stride = int(track_stride)
+    if track_stride < 0:
+        raise ValueError("track_stride must be non-negative")
     worst = {"trial": np.inf, "accepted": np.inf}
+    tracked = {"accepted_calls": 0}
+    engine = "kernel" if _fast_kernel.available() else "python"
+    n_interior = context["n_interior"]
+    n_faces = len(context["faces"])
+    if engine == "kernel":
+        # The boundary template and the kernel scratch are fixed for the whole
+        # stage; splitting the complex values once and reusing the 5*n_faces
+        # buffer removes two 1 MB copies and the internal malloc per call.
+        template = _fast_kernel.prepare(context["values"])
+        scratch = np.empty(_fast_kernel.scratch_size(n_faces, n_interior))
 
     def objective(point):
-        ratios, gradients, minimum_jacobian = _lse_evaluate(point, context)
+        if engine == "kernel":
+            gradient = np.zeros(2*n_interior)
+            ratios = np.empty(n_faces)
+            value, minimum_jacobian = _fast_kernel.objective(
+                point, context["values"], context["faces"], context["gx"],
+                context["gy"], n_interior, beta, ratios, gradient,
+                scratch=scratch, template=template)
+            if not np.isfinite(value):
+                worst["trial"] = -np.inf
+                return np.inf, np.zeros_like(point)
+            worst["trial"] = min(worst["trial"], minimum_jacobian)
+            return value, gradient
+        ratios, data, minimum_jacobian = _lse_evaluate_dense(point, context)
         weights, value = _softmax(beta, ratios)
         worst["trial"] = min(worst["trial"], minimum_jacobian)
-        return value, np.asarray(gradients.T @ weights).ravel()
+        return value, _dense_gradient(data, weights, context)
 
     def track(point):
-        _, _, minimum_jacobian = _lse_evaluate(point, context)
-        worst["accepted"] = min(worst["accepted"], minimum_jacobian)
+        # The callback is an observation only; it never feeds the optimizer.
+        # Sampling every ``track_stride`` accepted iterates keeps the minimum
+        # Jacobian diagnostic without paying a face-field evaluation at every
+        # iteration.
+        if track_stride <= 0:
+            return
+        tracked["accepted_calls"] += 1
+        if tracked["accepted_calls"] % track_stride:
+            return
+        n = context["n_interior"]
+        values = context["values"].copy()
+        values[:n] = point[:n] + 1j*point[n:2*n]
+        _, jacobian = face_state(values, context["faces"], context["gx"],
+                                 context["gy"])
+        worst["accepted"] = min(worst["accepted"], float(np.min(jacobian)))
 
     started = perf_counter()
-    result = minimize(objective, x, jac=True, method="L-BFGS-B", callback=track,
+    result = minimize(objective, x, jac=True, method="L-BFGS-B",
+                      callback=track if track_stride > 0 else None,
                       options={"maxiter": max_iterations,
                                "maxfun": 20*max_iterations, "ftol": 0.0,
-                               "gtol": 1e-12, "maxcor": 20})
+                               "gtol": 1e-12, "maxcor": int(maxcor)})
     ratios, _, minimum_jacobian = _lse_evaluate(result.x, context)
     weighted, value = _softmax(beta, ratios)
+    accepted = worst["accepted"]
     return result.x, {
         "beta": float(beta), "seconds": float(perf_counter() - started),
         "iterations": int(result.nit), "evaluations": int(result.nfev),
+        "maxcor": int(maxcor), "track_stride": track_stride,
+        "engine": engine,
         "exact_peak": float(np.max(ratios)),
         "surrogate_value": value,
         "surrogate_gap": float(value - np.max(ratios)),
         "minimum_jacobian": float(minimum_jacobian),
-        "worst_min_jacobian_accepted": float(worst["accepted"]),
+        "worst_min_jacobian_accepted": (
+            float(accepted) if np.isfinite(accepted) else None),
         "worst_min_jacobian_trial": float(worst["trial"]),
         "effective_active_faces": float(1.0/np.sum(weighted**2)),
     }
 
 
 def _lse_initial_map(z, faces, gx, gy, n_interior, start, *, betas, iterations,
-                     max_bisections=LSE_MAX_BISECTIONS):
+                     max_bisections=LSE_MAX_BISECTIONS, maxcor=20,
+                     track_stride=LSE_TRACK_STRIDE):
     """Smooth-surrogate cold start: beta ladder with a monotone feasible filter.
 
     Every stage is checked at its endpoint before it is kept: the point must be
@@ -222,7 +399,9 @@ def _lse_initial_map(z, faces, gx, gy, n_interior, start, *, betas, iterations,
     history = []
     total = 0.0
     for beta in betas:
-        candidate, info = _lse_stage(x, context, beta, iterations)
+        candidate, info = _lse_stage(x, context, beta, iterations,
+                                     maxcor=maxcor,
+                                     track_stride=track_stride)
         total += info["seconds"]
         fraction, endpoint = 1.0, None
         for _ in range(max_bisections + 1):
@@ -329,8 +508,8 @@ def _minimize_p1(z, faces, boundary_values, initial_values, *, n_interior,
         roundoff_limited_radius = radius < coordinate_roundoff_floor
         if stationarity_ratio <= relative_stationarity or roundoff_limited_radius:
             # The linear model has nothing left to offer at this radius. A
-            # multi-radius audit over the same all-face LP can still find
-            # descent here; it is a research-side diagnostic, not this core.
+            # multi-radius audit (research repo, probe_tbs_allface_slp.py) can
+            # still find descent here; it is not part of this core.
             stop_reason = ("trust_radius_below_coordinate_roundoff_floor"
                            if roundoff_limited_radius
                            else "relative_model_descent_below_threshold")
@@ -440,7 +619,8 @@ def solve_tbs(beta=None, alpha=None, *, trace=None, spacing=0.1, boundary_count=
               peak_window=25, peak_tolerance=0.0,
               feasibility_tolerance=1e-10, lp_method="highs-ipm",
               initialization="tutte", lse_betas=None,
-              lse_iterations=LSE_ITERATIONS):
+              lse_iterations=LSE_ITERATIONS, lse_maxcor=20,
+              lse_track_stride=LSE_TRACK_STRIDE):
     """Minimize ``max_face |mu|`` over P1 self-maps of the disk, trace frozen.
 
     Parameters
@@ -546,7 +726,8 @@ def solve_tbs(beta=None, alpha=None, *, trace=None, spacing=0.1, boundary_count=
         started = perf_counter()
         initial, lse_record = _lse_initial_map(
             z, faces, gx, gy, n_interior, initial, betas=betas,
-            iterations=int(lse_iterations))
+            iterations=int(lse_iterations), maxcor=int(lse_maxcor),
+            track_stride=int(lse_track_stride))
         cold_start_seconds = perf_counter() - started
         lse_record["seconds_including_setup"] = cold_start_seconds
 
@@ -581,7 +762,9 @@ def solve_tbs(beta=None, alpha=None, *, trace=None, spacing=0.1, boundary_count=
             "lp_method": lp_method,
             "initialization": initialization,
             "lse_betas": None if lse_record is None else lse_record["betas"],
-            "lse_iterations": int(lse_iterations)},
+            "lse_iterations": int(lse_iterations),
+            "lse_maxcor": int(lse_maxcor),
+            "lse_track_stride": int(lse_track_stride)},
         "initialization": {"method": initialization,
                            "seconds": cold_start_seconds, "lse": lse_record},
         "cold_start_seconds": cold_start_seconds,

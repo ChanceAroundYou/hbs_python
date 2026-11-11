@@ -2,10 +2,10 @@
 
 Two representations are provided:
 
+* :class:`FourierCircleTrace` - a finite Fourier angle lift, kept because the
+  Fejer construction and the acceptance diagnostics take this form;
 * :class:`LocalC2Boundary` - the exact-rational local C2 rounding of a
   monotone welding table. This is the representation ``solve_tbs`` consumes.
-* :class:`FourierCircleTrace` - a finite Fourier angle lift, accepted by
-  ``solve_tbs`` as an alternative frozen trace.
 
 This module carries geometry, not evidence. Interval enclosures, derivative
 certificates and outward-rounded transfer budgets live in a separate
