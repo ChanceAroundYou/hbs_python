@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="hbs",
-    version="2.6.4",
+    version="2.6.5",
     author="Lin Chenran",
     author_email="chenranlin.17@gmail.com",
     description="Python library for computing Harmonic Beltrami Signature(HBS)",
@@ -12,6 +12,8 @@ setup(
     license="MIT",
     license_files=["LICENSE"],
     packages=find_packages(),  # 顶层只收 hbs/；GPL 隔离区在 package_dir 外
+    # hbs.tbs 的融合内核是纯 C 源，导入时按需编译；不打包则装好的包只会回退到 Python 路径
+    package_data={"hbs": ["tbs/_fast_kernel.c"]},
     install_requires=[
         "numpy>=1.20",  # numpy.typing.NDArray（hbs/_harmonic_measure/direct.py）
         "scipy>=1.5",

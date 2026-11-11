@@ -10,6 +10,71 @@ version newer than PyPI's latest describe work that is on `main` only.
 
 ## [Unreleased]
 
+## [2.6.5] — 2026-11-11
+
+### Changed — harmonic-measure density acceptance is now a conjunction
+
+- A collocation level is accepted only when **both** bounds hold: negative-mass
+  fraction `sum|min(q,0)|/sum|q| ≤ 1e-8` **and** negative peak ratio
+  `max(|min(q,0)|)/max(q) ≤ 1e-6`. Roundoff-level negatives
+  (`min_raw ≥ -1e-10 * max_raw`) are still clipped without involving the bounds.
+  The check lives in one helper, `hbs/_harmonic_measure/direct.py::_density_tolerances_are_exceeded()`.
+  Mass alone previously accepted inputs whose negatives sit on one or two nodes.
+- A level whose `2n` convergence reference itself fails the criteria is recorded as
+  `rejected_unconverged` and that level is **not** accepted; the old behavior logged a
+  note and continued.
+- The `1024 → 2048 → 4096 → 8192` collocation ladder now applies **only to the raw
+  input rung** (`_first_success` passes the rung name to the attempt, and
+  `harmonic_measure` supplies `n_ladder` only when `rung == "raw"`). Geometric
+  degradation rungs (`resample500`, `+s2`, `+s4`) run single-level acceptance.
+  Before this, a cusped input could reach `resample500+n4096` and a noisy one
+  `resample500+s4+n2048`, which reads as "refined until it passed" while the
+  geometry had also changed.
+- Diagnostics: `negative_peak_ratio_internal` / `negative_peak_ratio_external` are
+  recorded on `ConformalWelding` and surfaced in the `harmonic_measure_welding`
+  result dict next to `solver_n`, `density_acceptance`, `negative_mass_*` and
+  `beta_convergence`.
+- Measured effect on the frozen 12-shape set (10 real shapes + triangle/square,
+  1000-point input, `circle_num=500`): **12/12 still accepted at the same `n` as the
+  2026-11-10 baseline**, all on the `raw` rung, with peak ratios ≤ `1.72e-8` —
+  i.e. those cases are rescued by collocation refinement, not by changed geometry.
+  The guard inputs fail loudly again: `cusped_z3` ends at
+  `resample500+s4, n=1024: rejected_beta`, and the σ=0.12 noisy ellipse reports
+  `mass 2.906e-03 > 1e-8, peak ratio 2.548e-01 > 1e-6`. Degenerate inputs sit at
+  peak ratios `0.19–1.68`, 4–8 orders of magnitude away from the artifact band.
+- Limits: these are discrete acceptance diagnostics, not a proof that a boundary
+  belongs to the engine's premises. On `cusped_z3_exact` the peak bound and the
+  unconverged rule block the ladder together — with `check_convergence=False` the
+  `n=4096` level (clean density, peak ratios `4.4e-13` / `0`) would be accepted.
+
+### Added — `hbs.tbs` fused C kernel and dense-gradient LSE stage
+
+- `hbs/tbs/_fast_kernel.c` with its ctypes wrapper `_fast_kernel.py`: face fields,
+  modulus, LSE value, gradient and `min J` in a single traversal over the face
+  table (float64, single-threaded; the source contains no OpenMP directives).
+  Compiled on demand at import into a digest-keyed cache under the system temp dir;
+  `HBS_FAST_KERNEL=0` disables the extension, and a missing compiler or failed
+  build falls back to the pure-Python path with `engine="python"` recorded.
+- The LSE stage now evaluates value, gradient and `min J` on a dense gradient
+  path with a per-stage boundary template and a fixed scratch buffer, and tracks
+  progress every `LSE_TRACK_STRIDE` iterations.
+- `hbs/tbs/geometry.py` gathers the three face vertices directly instead of
+  materializing the `(faces, 3)` complex temporary from `values[faces]`; same
+  three-term sum, bit-identical results.
+- Packaging: `package_data={"hbs": ["tbs/_fast_kernel.c"]}`. Without it the C source
+  was outside the wheel and an installed package silently fell back to the Python
+  path. Verified in a built `hbs-2.6.5-py3-none-any.whl`.
+
+### Tests
+
+- `tests/test_harmonic_measure_negative_density.py`: peak ratio is reported for an
+  accepted trace; the cusped boundary is rejected across the whole ladder with
+  `rejected_unconverged` in the message; the conjunction itself is checked
+  numerically on roundoff / artifact / degenerate triples.
+- `tests/test_engines_ladder_scope.py` (new): the ladder is offered only to the raw
+  rung; the noisy input may not be rescued by a degradation rung.
+- Full suite passes (341 tests) with no behavior change for roundoff-level negatives.
+
 ## [2.6.4] — 2026-11-07
 
 ### Robustness — PDE route
