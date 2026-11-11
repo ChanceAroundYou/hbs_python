@@ -25,10 +25,17 @@
 （H 乘常数不改变 `H_z̄/H_z`，且 I₂ 会再转掉 T 的残差）；后者与 I₂ 是同一
 转动自由度，同时施加会冲突。
 
-## 局限
+## 局限与近角处理
 
-要求边界光滑，且原始内外调和测度密度严格为正——像素阶梯轮廓、噪声轮廓、尖角
-会让密度出现负值，直接失败。这类输入的降级重试在 `hbs._engines._rungs`。
+要求边界光滑；像素阶梯轮廓、噪声轮廓仍可能失败。近角轮廓会让原始密度出现
+离散化级负值（−1e-9～−1e-6）。`harmonic_measure_welding` 用配点阶梯
+`n=1024→8192` 加密，接受判据是**两条同时**成立：负质量分数
+`sum|min(q,0)|/sum|q| ≤ 1e-8`，且最深单点负值与正峰之比 ≤ 1e-6。峰比是分界线：
+只有质量约束会把真正的几何退化（尖点、重噪声）当成伪影救回来。非首级或非严格正
+的接受还须通过相邻级 β 差 ≤ 1e-2 rad 的收敛检查，`2n` 解达不到判据时该级按未收敛
+拒绝。实际使用的 n、负质量/峰比与 β 收敛差随返回值报告。几何本身不被修改；几何
+降级重试仍在 `hbs._engines._rungs`，且**配点阶梯只用于原始输入**，降级几何只跑
+单级严格判据。
 """
 
 from __future__ import annotations
@@ -72,25 +79,147 @@ class _SplineShape:
         return self._x(v, 1) + 1j * self._y(v, 1)
 
 
-def harmonic_measure_welding(bound: np.ndarray, circle_num: int = 500, n: int = 1024) -> dict:
+def harmonic_measure_welding(
+    bound: np.ndarray,
+    circle_num: int = 500,
+    n: int = 1024,
+    *,
+    n_ladder: tuple[int, ...] | None = None,
+    negative_mass_tolerance: float = 1e-8,
+    negative_peak_tolerance: float = 1e-6,
+    check_convergence: bool = True,
+    angle_tolerance: float = 1e-2,
+) -> dict:
     """求调和测度焊接，返回 `ConformalWelding.from_harmonic_measure` 需要的字典。
+
+    近角轮廓的原始密度可能出现离散化级负值。负质量分数
+    ``sum|min(q,0)|/sum|q|`` 随配点数约以 n^-2 下降；本函数按
+    ``n_ladder`` 逐级加密，只有**两条**判据同时满足的那一级才被接受：
+
+    1. 负质量分数 ≤ ``negative_mass_tolerance``；
+    2. 最深单点负值与正峰之比 ≤ ``negative_peak_tolerance``。
+
+    第二条是分界线：真几何退化（尖点 ``|γ'|=0``、σ 很大的噪声轮廓）的负值与
+    密度本身同量级（实测噪声例 0.5–1.7、尖点例 0.19–0.59，且配点加密后**不复现
+    消失**：5.2e-3 → 1.6e-2 → 0 → 5.3e-3），而离散化伪影的峰比随 n 掉到 1e-8–1e-12。
+    只用质量会把前者当后者救回来，库内两支守卫测试正是这样失效的。
+
+    非首级或非严格正的接受还须核实收敛：更细一级（``2n``）的解必须**自己达到
+    判据**且 β 差 ≤ ``angle_tolerance``；``2n`` 解达不到判据时该级按未收敛拒绝，
+    不再记一条 note 之后照常接受。
 
     :param `bound`: `n x 2` 光滑闭合曲线采样（会被 `_SplineShape` 翻成逆时针）
     :param `circle_num`: 源圆采样点数
-    :param `n`: 边界层方程的离散点数（须为偶数），与 `circle_num` 无关
-    :return: `init_x_angle` / `init_x` / `init_y` / `parameter` / `boundary`
-    :raises RuntimeError: 原始内外调和测度密度出现非正值（不接受密度修剪）
+    :param `n`: 单级配点数（`n_ladder` 为 None 时只用这一级）
+    :param `n_ladder`: 候选配点数阶梯（升序使用）；每级都失败时抛错
+    :param `negative_mass_tolerance`: 可接受的负质量分数上限
+    :param `negative_peak_tolerance`: 可接受的「最深单点负值 / 正峰」上限
+    :param `check_convergence`: 在非首级或非严格正接受时，用 2n 解检查 β 收敛
+    :param `angle_tolerance`: 相邻两级的 β 最大差上限（弧度）。默认 1e-2，
+        与 TBS 的边界相位预算 1.1e-2 rad 同量级；实测最难的近角输入
+        （real_fork-3，1000 点，n=8192）为 6.2e-3，必须随记录报告。
+    :return: `init_x_angle` / `init_x` / `init_y` / `parameter` / `boundary`，
+        以及 `n`、`density_acceptance`、负质量/峰比与收敛诊断
+    :raises RuntimeError: 全部配点级都未达到接受判据
     """
     from hbs._harmonic_measure import direct
 
     # 样条只在这里拟合一次：求解器的 `curve`/`derivative`、极点搜索与下游的
     # `shape.curve(parameter)` 共用同一个 `_SplineShape`。
     shape = _SplineShape(bound)
-    result = direct.compute_direct_hbs(
-        shape.curve, shape.derivative, n=n, pole=direct._interior_pole(shape.points)
-    )
-    if result.min_raw_internal_density <= 0 or result.min_raw_external_density <= 0:
-        raise RuntimeError("调和测度基线要求原始内外调和测度密度严格为正，不接受密度修剪")
+    pole = direct._interior_pole(shape.points)
+    candidates = tuple(sorted({int(v) for v in
+                               (n_ladder if n_ladder is not None else (n,))}))
+    if not candidates or any(v < 8 or v % 2 for v in candidates):
+        raise ValueError("n_ladder must contain even integers >= 8")
+
+    diagnostics: list[dict] = []
+    result = None
+    accepted_n = None
+    acceptance = None
+    beta_convergence = None
+    previous: tuple[int, object] | None = None
+
+    def _beta_gap(n_a: int, beta_a, n_b: int, beta_b) -> float:
+        grid_n = max(n_a, n_b)
+        grid = 2 * np.pi * np.arange(grid_n) / grid_n
+        a = np.interp(grid, 2 * np.pi * np.arange(n_a) / n_a, beta_a)
+        b = np.interp(grid, 2 * np.pi * np.arange(n_b) / n_b, beta_b)
+        return float(np.max(np.abs(a - b)))
+
+    for candidate_n in candidates:
+        try:
+            trial = direct.compute_direct_hbs(
+                shape.curve, shape.derivative, n=candidate_n, pole=pole,
+                negative_mass_tolerance=negative_mass_tolerance,
+                negative_peak_tolerance=negative_peak_tolerance,
+            )
+        except RuntimeError as exc:
+            diagnostics.append({"n": candidate_n, "status": "rejected",
+                                "error": str(exc)})
+            continue
+        strict = (trial.min_raw_internal_density >= 0
+                  and trial.min_raw_external_density >= 0)
+        record = {"n": candidate_n, **trial.density_diagnostics()}
+        record.pop("density_regularization_mass", None)
+        if check_convergence and (candidate_n != candidates[0] or not strict):
+            reference = None
+            reference_n = None
+            if 2 * candidate_n <= 8192:
+                try:
+                    reference = direct.compute_direct_hbs(
+                        shape.curve, shape.derivative, n=2 * candidate_n,
+                        pole=pole,
+                        negative_mass_tolerance=negative_mass_tolerance,
+                        negative_peak_tolerance=negative_peak_tolerance,
+                    )
+                    reference_n = 2 * candidate_n
+                except RuntimeError as exc:
+                    # 更细一级连判据都达不到：这一级的「干净」不是收敛，只是
+                    # 采样恰好避开了退化处，不能据此交付迹。
+                    record["status"] = "rejected_unconverged"
+                    record["beta_convergence_note"] = f"2n check failed: {exc}"
+                    diagnostics.append(record)
+                    previous = (candidate_n, trial)
+                    continue
+            elif previous is not None:
+                reference_n, reference = previous
+            elif candidate_n == candidates[-1] and candidate_n > 8:
+                # 顶层没有 2n 预算：用 n/2 的宽松解做同一收敛估计。
+                try:
+                    reference = direct.compute_direct_hbs(
+                        shape.curve, shape.derivative, n=candidate_n // 2,
+                        pole=pole, negative_mass_tolerance=float("inf"),
+                    )
+                    reference_n = candidate_n // 2
+                except RuntimeError as exc:
+                    record["beta_convergence_note"] = f"n/2 check failed: {exc}"
+            if reference is not None:
+                diff = _beta_gap(candidate_n, trial.beta,
+                                 reference_n, reference.beta)
+                record["beta_convergence"] = diff
+                record["beta_convergence_against_n"] = reference_n
+                if diff > angle_tolerance:
+                    record["status"] = "rejected_beta"
+                    diagnostics.append(record)
+                    previous = (candidate_n, trial)
+                    continue
+        record["status"] = "accepted"
+        diagnostics.append(record)
+        result, accepted_n = trial, candidate_n
+        acceptance = "strict" if strict else "negative_mass"
+        beta_convergence = record.get("beta_convergence")
+        previous = (candidate_n, trial)
+        break
+    if result is None:
+        reasons = "; ".join(
+            f"n={row['n']}: {row.get('error', row.get('status'))}"
+            for row in diagnostics
+        )
+        raise RuntimeError(
+            "harmonic-measure density did not reach the acceptance criterion "
+            f"({reasons})"
+        )
 
     t = 2 * np.pi * np.arange(len(result.alpha)) / len(result.alpha)
     alpha = CubicSpline(
@@ -114,6 +243,17 @@ def harmonic_measure_welding(bound: np.ndarray, circle_num: int = 500, n: int = 
         "init_y": np.exp(1j * (parameter + alpha(parameter))),
         "parameter": parameter,
         "boundary": shape.curve(parameter),
+        "n": int(accepted_n),
+        "n_ladder": list(candidates),
+        "density_acceptance": acceptance,
+        "min_raw_internal_density": float(result.min_raw_internal_density),
+        "min_raw_external_density": float(result.min_raw_external_density),
+        "negative_mass_internal": float(result.negative_mass_internal),
+        "negative_mass_external": float(result.negative_mass_external),
+        "negative_peak_ratio_internal": record["negative_peak_ratio_internal"],
+        "negative_peak_ratio_external": record["negative_peak_ratio_external"],
+        "beta_convergence": beta_convergence,
+        "density_diagnostics": diagnostics,
     }
 
 

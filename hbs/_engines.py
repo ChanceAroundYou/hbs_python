@@ -17,7 +17,7 @@
 
 | 引擎 | 实现 | 特点 |
 |---|---|---|
-| `"harmonic_measure"` | 边界层对数单层势 → 内外调和测度密度 → 圆相位 | 光滑曲线精度高；要求原始内外密度严格为正 |
+| `"harmonic_measure"` | 边界层对数单层势 → 内外调和测度密度 → 圆相位 | 光滑曲线精度高；近角用 n=1024→8192 配点阶梯，接受判据为负质量 ≤1e-8 **且** 峰比 ≤1e-6（阶梯只作用于原始输入） |
 | `"zipper"` | Bishop/Marshall Zipper（Möbius + 开方逐步收缩 slit） | 只依赖点序列，对不规则采样更宽容；对高对称形状有结构性退化 |
 | `"pde"` | 外域单侧 Fourier 条件 + 内域平坦度量 PDE + M1 居中 | 不经过调和测度密度；局部求解器，验收看 PDE/选择器原始残差 |
 
@@ -28,6 +28,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+
+#: 调和测度引擎的配点阶梯。**只作用于 `raw` 级输入**（见 `harmonic_measure`）：
+#: 只在 n=1024 未达到接受判据时才升级；高一级的 2n 收敛检查由
+#: `harmonic_measure_welding` 负责。
+HARMONIC_MEASURE_N_LADDER = (1024, 2048, 4096, 8192)
 from dataclasses import dataclass
 
 import numpy as np
@@ -74,6 +79,9 @@ def _result(
     将来非均匀源角引擎的精度。
     """
     welding.linear_interp(circle_num)
+    solver_n = getattr(welding, "solver_n", None)
+    if solver_n is not None and int(solver_n) != 1024:
+        rung = f"{rung}+n{int(solver_n)}"
     return WeldingResult(
         values=np.array(welding.y, complex),
         welding=welding,
@@ -103,7 +111,7 @@ def _first_success(
     engine: str,
     bound: np.ndarray,
     circle_num: int,
-    attempt: Callable[[np.ndarray], ConformalWelding],
+    attempt: Callable[[np.ndarray, str], ConformalWelding],
     rungs=None,
 ) -> WeldingResult:
     """按输入阶梯逐级尝试一个引擎，返回第一个成功的结果。
@@ -117,7 +125,7 @@ def _first_success(
     last: Exception | None = None
     for rung, candidate in rung_list:
         try:
-            return _result(attempt(candidate), rung, engine, circle_num)
+            return _result(attempt(candidate, rung), rung, engine, circle_num)
         except (RuntimeError, ValueError, ConformalWeldingNumericalError) as exc:
             last = exc
     raise RuntimeError(
@@ -128,13 +136,22 @@ def _first_success(
 
 
 def harmonic_measure(bound: np.ndarray, circle_num: int) -> WeldingResult:
-    """调和测度引擎：边界层对数单层势求解。"""
+    """调和测度引擎：边界层对数单层势求解。
+
+    近角输入在 n=1024 可能出现离散化级负密度；**原始输入**的阶梯逐级加密到 8192，
+    由 `harmonic_measure_welding` 的负质量 + 峰比判据与 2n 收敛检查把关。降级几何
+    （重采样 / 平滑）只跑单级严格判据：那里几何已被改动，再叠一层配点阶梯会把
+    「换了几何所以过了」伪装成「加密所以过了」。
+    """
     from hbs.harmonic_measure import harmonic_measure_welding
 
     return _first_success(
         "harmonic_measure", bound, circle_num,
-        lambda candidate: ConformalWelding.from_harmonic_measure(
-            harmonic_measure_welding(candidate, circle_num=circle_num)
+        lambda candidate, rung: ConformalWelding.from_harmonic_measure(
+            harmonic_measure_welding(
+                candidate, circle_num=circle_num,
+                n_ladder=HARMONIC_MEASURE_N_LADDER if rung == "raw" else None,
+            )
         ),
     )
 
@@ -143,7 +160,7 @@ def zipper(bound: np.ndarray, circle_num: int) -> WeldingResult:
     """Zipper 引擎：Bishop/Marshall zipper 算法。"""
     return _first_success(
         "zipper", bound, circle_num,
-        lambda candidate: zipper_welding_prepared(candidate),
+        lambda candidate, rung: zipper_welding_prepared(candidate),
     )
 
 
@@ -153,7 +170,7 @@ def pde(bound: np.ndarray, circle_num: int) -> WeldingResult:
 
     return _first_success(
         "pde", bound, circle_num,
-        lambda candidate: ConformalWelding.from_harmonic_measure(
+        lambda candidate, rung: ConformalWelding.from_harmonic_measure(
             pde_welding(candidate, circle_num=circle_num)
         ),
         rungs=_rungs(bound, sigmas=(2.0, 4.0, 8.0, 16.0, 32.0)),

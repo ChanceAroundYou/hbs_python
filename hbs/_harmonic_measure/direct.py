@@ -36,7 +36,45 @@ class DirectHBS:
     timings: dict[str, float]
     min_raw_internal_density: float = 0.0
     min_raw_external_density: float = 0.0
+    max_raw_internal_density: float = 0.0
+    max_raw_external_density: float = 0.0
     density_regularization_mass: float = 0.0
+    negative_mass_internal: float = 0.0
+    negative_mass_external: float = 0.0
+    negative_count_internal: int = 0
+    negative_count_external: int = 0
+    negative_peak_internal: float = 0.0
+    negative_peak_external: float = 0.0
+
+    def density_diagnostics(self) -> dict[str, float | int]:
+        """Raw-density negativity snapshot, for acceptance reporting.
+
+        ``negative_mass_*`` is the relative L1 mass of the negative part;
+        ``negative_peak_ratio_*`` is the deepest single negative divided by the
+        positive peak.  Mass alone cannot tell a discretization artifact from a
+        boundary that is outside the engine's domain, so both are reported.
+        """
+        return {
+            "min_raw_internal_density": self.min_raw_internal_density,
+            "min_raw_external_density": self.min_raw_external_density,
+            "max_raw_internal_density": self.max_raw_internal_density,
+            "max_raw_external_density": self.max_raw_external_density,
+            "negative_mass_internal": self.negative_mass_internal,
+            "negative_mass_external": self.negative_mass_external,
+            "negative_count_internal": self.negative_count_internal,
+            "negative_count_external": self.negative_count_external,
+            "negative_peak_internal": self.negative_peak_internal,
+            "negative_peak_external": self.negative_peak_external,
+            "negative_peak_ratio_internal": (
+                self.negative_peak_internal / self.max_raw_internal_density
+                if self.max_raw_internal_density > 0 else float("inf")
+            ),
+            "negative_peak_ratio_external": (
+                self.negative_peak_external / self.max_raw_external_density
+                if self.max_raw_external_density > 0 else float("inf")
+            ),
+            "density_regularization_mass": self.density_regularization_mass,
+        }
 
     def boundary_map(self, theta: NDArray[np.float64]) -> NDArray[np.complex128]:
         """Evaluate H on the source unit circle at arbitrary angles."""
@@ -127,11 +165,36 @@ def _operator(
     return r[np.mod(delta, n)] + dt * smooth
 
 
+def _density_tolerances_are_exceeded(
+    min_raw: float,
+    max_raw: float,
+    negative_mass: float,
+    negative_peak: float,
+    negative_mass_tolerance: float,
+    negative_peak_tolerance: float,
+) -> bool:
+    """Single place where the negative-density acceptance contract is decided.
+
+    Roundoff-level negatives (``min(q) >= -1e-10 * max(q)``) are always allowed and
+    get clipped.  Anything deeper has to satisfy **both** bounds: the relative L1
+    mass *and* the deepest single negative relative to the positive peak.  A cusp or
+    a heavily noisy contour keeps a small total mass while its pointwise negatives
+    stay of the same order as the density, so the mass bound alone cannot tell a
+    discretization artifact from a boundary that is outside the engine's domain.
+    """
+    if min_raw >= -1e-10 * max_raw:
+        return False
+    peak_ratio = negative_peak / max_raw if max_raw > 0 else float("inf")
+    return negative_mass > negative_mass_tolerance or peak_ratio > negative_peak_tolerance
+
+
 def compute_direct_hbs(
     curve: Callable[[NDArray[np.float64]], NDArray[np.complex128]],
     derivative: Callable[[NDArray[np.float64]], NDArray[np.complex128]],
     n: int = 480,
     pole: complex = 0j,
+    negative_mass_tolerance: float = 0.0,
+    negative_peak_tolerance: float = 0.0,
 ) -> DirectHBS:
     """Solve for the circle phases on the ``n``-point collocation grid.
 
@@ -139,6 +202,24 @@ def compute_direct_hbs(
     [0,2*pi), with ``pole`` strictly inside.  Both logarithmic single-layer
     equations are collocated at the ``n`` uniform nodes, which is also the grid
     the M1 centering sum runs over.
+
+    Negatives in the raw density are tolerated only when they look like
+    roundoff: ``min(q) >= -1e-10 * max(q)``.  Beyond that both tolerances must
+    hold, per side:
+
+    * ``negative_mass_tolerance`` bounds the relative L1 mass
+      ``sum(|min(q,0)|) / sum(|q|)``;
+    * ``negative_peak_tolerance`` bounds the *deepest single* negative relative
+      to the positive peak, ``max(|min(q,0)|) / max(q)``.
+
+    The second bound is what separates a discretization artifact from a boundary
+    that is outside the engine's domain: a cusp or a heavily noisy contour keeps
+    negatives of the same order as the density itself, and a small total mass
+    does not make those pointwise negatives geometrically meaningful.  The
+    defaults ``0``/``0`` keep the strict contract (only roundoff-level negatives
+    are clipped).  Callers that deliberately accept discretization-level
+    negatives pass small positive values and must report the measured mass and
+    peak ratio.
     """
     if n % 2:
         raise ValueError("N must be even")
@@ -166,11 +247,26 @@ def compute_direct_hbs(
     r_in = float(np.max(np.abs(system @ sol[:, 0] - rhs[:, 0])))
     r_out = float(np.max(np.abs(system @ sol[:, 1] - rhs[:, 1])))
     t_solve = perf_counter()
+    neg_mass_in = float(np.abs(np.minimum(q_in, 0.0)).sum() / np.abs(q_in).sum())
+    neg_mass_out = float(np.abs(np.minimum(q_out, 0.0)).sum() / np.abs(q_out).sum())
+    neg_count_in = int(np.count_nonzero(q_in < 0))
+    neg_count_out = int(np.count_nonzero(q_out < 0))
+    neg_peak_in = float(np.abs(np.minimum(q_in, 0.0)).max())
+    neg_peak_out = float(np.abs(np.minimum(q_out, 0.0)).max())
+    max_raw_in = float(q_in.max())
+    max_raw_out = float(q_out.max())
     correction_mass = 0.0
-    for q in (q_in, q_out):
-        if q.min() < -1e-10 * q.max():
+    for q, max_raw, mass, peak in ((q_in, max_raw_in, neg_mass_in, neg_peak_in),
+                                   (q_out, max_raw_out, neg_mass_out, neg_peak_out)):
+        if _density_tolerances_are_exceeded(
+            q.min(), max_raw, mass, peak,
+            negative_mass_tolerance, negative_peak_tolerance,
+        ):
             raise RuntimeError(
-                "negative harmonic-measure density beyond roundoff tolerance; refine or check boundary"
+                "negative harmonic-measure density beyond tolerance "
+                f"(mass {mass:.3e} > {negative_mass_tolerance:.1e}, peak ratio "
+                f"{peak / max_raw:.3e} > {negative_peak_tolerance:.1e}); "
+                "refine or check boundary"
             )
         if q.min() <= 0:
             old = q.copy()
@@ -224,9 +320,17 @@ def compute_direct_hbs(
             "gauge": done - t_solve,
             "total": done - tic,
         },
-        min_raw_in,
-        min_raw_out,
-        correction_mass,
+        min_raw_internal_density=min_raw_in,
+        min_raw_external_density=min_raw_out,
+        max_raw_internal_density=max_raw_in,
+        max_raw_external_density=max_raw_out,
+        density_regularization_mass=correction_mass,
+        negative_mass_internal=neg_mass_in,
+        negative_mass_external=neg_mass_out,
+        negative_count_internal=neg_count_in,
+        negative_count_external=neg_count_out,
+        negative_peak_internal=neg_peak_in,
+        negative_peak_external=neg_peak_out,
     )
 
 

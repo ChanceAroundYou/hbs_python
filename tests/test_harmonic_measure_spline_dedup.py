@@ -29,9 +29,12 @@ def test_solver_takes_the_curve_and_the_point_path_is_unused(monkeypatch):
     seen = []
     real = direct.compute_direct_hbs
 
-    def spy(curve, derivative, n=480, pole=0j):
+    def spy(curve, derivative, n=480, pole=0j, negative_mass_tolerance=0.0,
+            negative_peak_tolerance=0.0):
         seen.append((curve, derivative, n, pole))
-        return real(curve, derivative, n=n, pole=pole)
+        return real(curve, derivative, n=n, pole=pole,
+                    negative_mass_tolerance=negative_mass_tolerance,
+                    negative_peak_tolerance=negative_peak_tolerance)
 
     def forbidden(*_args, **_kwargs):
         raise AssertionError(

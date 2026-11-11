@@ -92,6 +92,15 @@ class ConformalWelding:
         self.y = y
         self.parameter = np.asarray(welding["parameter"], float)
         self.boundary = np.asarray(welding["boundary"], complex)
+        # 配点阶梯可能用高于 1024 的 n；这些是求解诊断，不是焊接数据的一部分。
+        self.solver_n = welding.get("n")
+        self.density_acceptance = welding.get("density_acceptance")
+        self.negative_mass_internal = welding.get("negative_mass_internal")
+        self.negative_mass_external = welding.get("negative_mass_external")
+        self.negative_peak_ratio_internal = welding.get("negative_peak_ratio_internal")
+        self.negative_peak_ratio_external = welding.get("negative_peak_ratio_external")
+        self.beta_convergence = welding.get("beta_convergence")
+        self.density_diagnostics = welding.get("density_diagnostics")
         return self
 
     def _require_zipper_params(self, what: str) -> None:
